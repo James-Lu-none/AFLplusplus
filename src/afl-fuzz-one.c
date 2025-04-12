@@ -3655,18 +3655,18 @@ static u8 mopt_common_fuzzing(afl_state_t *afl, MOpt_globals_t MOpt_globals) {
   }
 
   /* Go to pacemker fuzzing if MOpt is doing well */
-
+/*
   cur_ms_lv = get_cur_time();
   if (!(afl->key_puppet == 0 &&
         ((cur_ms_lv - afl->last_find_time < (u32)afl->limit_time_puppet) ||
          (afl->last_crash_time != 0 &&
           cur_ms_lv - afl->last_crash_time < (u32)afl->limit_time_puppet) ||
          afl->last_find_time == 0))) {
-
+*/
     afl->key_puppet = 1;
     goto pacemaker_fuzzing;
 
-  }
+//  }
 
   /* Skip right away if -d is given, if we have done deterministic fuzzing on
      this entry ourselves (was_fuzzed), or if it has gone through deterministic
