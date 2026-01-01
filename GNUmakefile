@@ -382,6 +382,9 @@ test-performance:	performance-test
 performance-test:	source-only
 	@cd test ; ./test-performance.sh
 
+mini-test:	afl-fuzz
+	AFL_PATH=. ./afl-cc -o test-instr test-instr.c
+	AFL_BENCH_JUST_ONE=1 AFL_NO_UI=1 ./afl-fuzz -i in -o out -- ./test-instr
 
 # hint: make targets are also listed in the top level README.md
 .PHONY: help

@@ -42,6 +42,7 @@ __attribute__((weak)) void __sanitizer_symbolize_pc(void *, const char *fmt,
 #include "cmplog.h"
 #include "llvm-alternative-coverage.h"
 #include "afl-ijon-min.h"
+#include "forkserver_ipc.h"
 
 /* For backtrace() support in ijon_hashstack */
 #if (defined(__linux__) && defined(__GLIBC__)) || defined(__APPLE__) || \
@@ -63,10 +64,16 @@ __attribute__((weak)) void __sanitizer_symbolize_pc(void *, const char *fmt,
 #include <stddef.h>
 #include <limits.h>
 #include <errno.h>
+#include <time.h>
 
 #include <sys/mman.h>
 #if !defined(__HAIKU__) && !defined(__OpenBSD__)
   #include <sys/syscall.h>
+#endif
+#ifdef __linux__
+  #ifndef __AFL_USE_SOCKETS
+    #include <linux/futex.h>
+  #endif
 #endif
 #ifndef USEMMAP
   #include <sys/shm.h>
@@ -182,6 +189,11 @@ u32 __afl_first_final_loc;
 u32 __afl_old_forkserver;
 
 u8 __afl_forkserver_setenv = 0;
+
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+static afl_fsrv_shm_t *__afl_fsrv_shm;
+static u32             __afl_fsrv_last_a2b_seq;
+#endif
 
 /* IJON max tracking globals */
 static u64 __afl_ijon_initial[MAP_SIZE_IJON_ENTRIES];
@@ -345,6 +357,225 @@ void __afl_trace(const u32 x) {
 
 }
 
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+static inline int afl_futex_wait(u32 *addr, u32 expected,
+                                 const struct timespec *timeout_rel) {
+
+  return (int)syscall(SYS_futex, addr, FUTEX_WAIT, expected, timeout_rel, NULL,
+                      0);
+
+}
+
+static inline int afl_futex_wake(u32 *addr, int n) {
+
+  return (int)syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+
+}
+
+static u64 __afl_time_us(void) {
+
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (u64)ts.tv_sec * 1000000ULL + (u64)ts.tv_nsec / 1000ULL;
+
+}
+
+static void __afl_map_fsrv_shm(void) {
+
+  if (__afl_fsrv_shm) { return; }
+
+  char *id_str = getenv(AFL_FORKSRV_SHM_ENV_VAR);
+  if (!id_str) { return; }
+
+  void *map = NULL;
+
+  if (id_str[0] == '/') {
+
+    int shm_fd = shm_open(id_str, O_RDWR, DEFAULT_PERMISSION);
+    if (shm_fd == -1) { return; }
+
+    map = mmap(0, sizeof(afl_fsrv_shm_t), PROT_READ | PROT_WRITE, MAP_SHARED,
+               shm_fd, 0);
+    close(shm_fd);
+    if (map == MAP_FAILED) { return; }
+
+  } else {
+
+    int shm_id = atoi(id_str);
+    if (shm_id < 0) { return; }
+
+    map = shmat(shm_id, NULL, 0);
+    if (!map || map == (void *)-1) { return; }
+
+  }
+
+  afl_fsrv_shm_t *shm = (afl_fsrv_shm_t *)map;
+  if (shm->magic != AFL_FORKSRV_SHM_MAGIC) {
+
+    if (id_str[0] == '/') {
+
+      munmap(map, sizeof(afl_fsrv_shm_t));
+
+    } else {
+
+      shmdt(map);
+
+    }
+    return;
+
+  }
+
+  __afl_fsrv_shm = shm;
+  __afl_fsrv_last_a2b_seq =
+      __atomic_load_n(&shm->a2b_seq, __ATOMIC_ACQUIRE);
+
+}
+
+static int __afl_fsrv_send_u32(u32 val) {
+
+  if (!__afl_fsrv_shm) { return -1; }
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&__afl_fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
+    u32 ack = __atomic_load_n(&__afl_fsrv_shm->b2a_ack, __ATOMIC_ACQUIRE);
+    if (ack == seq) { break; }
+
+    int rc = afl_futex_wait(&__afl_fsrv_shm->b2a_ack, ack, NULL);
+    if (rc == -1 && (errno == EAGAIN || errno == EINTR)) { continue; }
+    if (rc == -1) { return -1; }
+
+  }
+
+  __atomic_store_n(&__afl_fsrv_shm->b2a_val, val, __ATOMIC_RELAXED);
+  __atomic_add_fetch(&__afl_fsrv_shm->b2a_seq, 1, __ATOMIC_RELEASE);
+  (void)afl_futex_wake(&__afl_fsrv_shm->b2a_seq, 1);
+  return 4;
+
+}
+
+static int __afl_fsrv_recv_u32(u32 *out) {
+
+  if (!__afl_fsrv_shm) { return -1; }
+
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&__afl_fsrv_shm->a2b_seq, __ATOMIC_ACQUIRE);
+    if (seq != __afl_fsrv_last_a2b_seq) {
+
+      __afl_fsrv_last_a2b_seq = seq;
+      *out = __atomic_load_n(&__afl_fsrv_shm->a2b_val, __ATOMIC_RELAXED);
+      return 4;
+
+    }
+
+    int rc =
+        afl_futex_wait(&__afl_fsrv_shm->a2b_seq, __afl_fsrv_last_a2b_seq, NULL);
+    if (rc == -1) {
+
+      if (errno == EAGAIN || errno == EINTR) { continue; }
+      return -1;
+
+    }
+
+  }
+
+}
+
+static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
+
+  if (!__afl_fsrv_shm) { return -1; }
+
+  u64 start_us = __afl_time_us();
+
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&__afl_fsrv_shm->a2b_seq, __ATOMIC_ACQUIRE);
+    if (seq != __afl_fsrv_last_a2b_seq) {
+
+      __afl_fsrv_last_a2b_seq = seq;
+      *out = __atomic_load_n(&__afl_fsrv_shm->a2b_val, __ATOMIC_RELAXED);
+      return 4;
+
+    }
+
+    if (!timeout_ms) {
+
+      int rc = afl_futex_wait(&__afl_fsrv_shm->a2b_seq,
+                              __afl_fsrv_last_a2b_seq, NULL);
+      if (rc == -1 && (errno == EAGAIN || errno == EINTR)) { continue; }
+      if (rc == -1) { return -1; }
+      continue;
+
+    }
+
+    u64 elapsed_us = __afl_time_us() - start_us;
+    if (elapsed_us >= (u64)timeout_ms * 1000ULL) { return 0; }
+
+    u64 remain_us = (u64)timeout_ms * 1000ULL - elapsed_us;
+    struct timespec ts = {.tv_sec = remain_us / 1000000ULL,
+                          .tv_nsec = (remain_us % 1000000ULL) * 1000ULL};
+    int rc = afl_futex_wait(&__afl_fsrv_shm->a2b_seq,
+                            __afl_fsrv_last_a2b_seq, &ts);
+    if (rc == -1) {
+
+      if (errno == ETIMEDOUT) { return 0; }
+      if (errno == EAGAIN || errno == EINTR) { continue; }
+      return -1;
+
+    }
+
+  }
+
+}
+
+static int __afl_fsrv_send_dict(const u8 *buf, u32 len) {
+
+  if (!__afl_fsrv_shm) { return -1; }
+  if (len > AFL_FORKSRV_SHM_PAYLOAD_SIZE) { return -1; }
+
+  memcpy(__afl_fsrv_shm->b2a_buf, buf, len);
+  __atomic_store_n(&__afl_fsrv_shm->b2a_buf_len, len, __ATOMIC_RELAXED);
+  return 0;
+
+}
+#else
+static void __afl_map_fsrv_shm(void) {
+
+  return;
+
+}
+
+static int __afl_fsrv_send_u32(u32 val) {
+
+  (void)val;
+  return -1;
+
+}
+
+static int __afl_fsrv_recv_u32(u32 *out) {
+
+  (void)out;
+  return -1;
+
+}
+
+static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
+
+  (void)out;
+  (void)timeout_ms;
+  return -1;
+
+}
+
+static int __afl_fsrv_send_dict(const u8 *buf, u32 len) {
+
+  (void)buf;
+  (void)len;
+  return -1;
+
+}
+#endif
+
 /* Error reporting to forkserver controller */
 
 static void send_forkserver_error(int error) {
@@ -352,6 +583,15 @@ static void send_forkserver_error(int error) {
   u32 status;
   if (!error || error > 0xffff) return;
   status = (FS_NEW_ERROR | error);
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  __afl_map_fsrv_shm();
+  if (__afl_fsrv_shm) {
+
+    (void)__afl_fsrv_send_u32(status);
+    return;
+
+  }
+#endif
   if (write(FORKSRV_FD + 1, (char *)&status, 4) != 4) { return; }
 
 }
@@ -532,9 +772,17 @@ static void __afl_map_shm(void) {
 
   }
 
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
   if (__afl_sharedmem_fuzzing && (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
                                   fcntl(FORKSRV_FD, F_GETFD) == -1 ||
                                   fcntl(FORKSRV_FD + 1, F_GETFD) == -1)) {
+#else
+  if (__afl_sharedmem_fuzzing &&
+      (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
+       (!getenv(AFL_FORKSRV_SHM_ENV_VAR) &&
+        (fcntl(FORKSRV_FD, F_GETFD) == -1 ||
+         fcntl(FORKSRV_FD + 1, F_GETFD) == -1)))) {
+#endif
 
     if (__afl_debug) {
 
@@ -1081,11 +1329,18 @@ static void __afl_start_forkserver(void) {
 
   }
 
+  int use_shm = 0;
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  __afl_map_fsrv_shm();
+  if (__afl_fsrv_shm) { use_shm = 1; }
+#endif
+
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
 
   // return because possible non-forkserver usage
-  if (write(FORKSRV_FD + 1, msg, 4) != 4) {
+  if ((use_shm ? __afl_fsrv_send_u32(status)
+               : write(FORKSRV_FD + 1, msg, 4)) != 4) {
 
     __afl_ijon_enabled = 0;
     __afl_ijon_map_increased = 1;
@@ -1095,7 +1350,21 @@ static void __afl_start_forkserver(void) {
 
   if (!__afl_old_forkserver) {
 
-    if (read(FORKSRV_FD, reply, 4) != 4) { _exit(1); }
+    if (use_shm) {
+
+      if (__afl_fsrv_recv_u32_tmo(&status2, 100) != 4) {
+
+        __afl_ijon_enabled = 0;
+        __afl_ijon_map_increased = 1;
+        return;
+
+      }
+
+    } else {
+
+      if (read(FORKSRV_FD, reply, 4) != 4) { _exit(1); }
+
+    }
     if (tmp != status2) {
 
       write_error("wrong forkserver message from AFL++ tool");
@@ -1115,7 +1384,8 @@ static void __afl_start_forkserver(void) {
     /* Add IJON capability flag if IJON is enabled */
     if (__afl_ijon_enabled) { status |= FS_OPT_IJON; }
 
-    if (write(FORKSRV_FD + 1, msg, 4) != 4) {
+    if ((use_shm ? __afl_fsrv_send_u32(status)
+                 : write(FORKSRV_FD + 1, msg, 4)) != 4) {
 
       errno = 0;
       _exit(1);
@@ -1126,7 +1396,12 @@ static void __afl_start_forkserver(void) {
 
     // FS_NEW_OPT_MAPSIZE - we always send the map size
     status = __afl_map_size;
-    if (write(FORKSRV_FD + 1, msg, 4) != 4) { _exit(1); }
+    if ((use_shm ? __afl_fsrv_send_u32(status)
+                 : write(FORKSRV_FD + 1, msg, 4)) != 4) {
+
+      _exit(1);
+
+    }
 
     // FS_NEW_OPT_SHDMEM_FUZZ - no data
 
@@ -1136,7 +1411,19 @@ static void __afl_start_forkserver(void) {
       // pass the dictionary through the forkserver FD
       u32 len = __afl_dictionary_len, offset = 0;
 
-      if (write(FORKSRV_FD + 1, &len, 4) != 4) {
+      if (use_shm) {
+
+        if (__afl_fsrv_send_dict(__afl_dictionary, len)) {
+
+          write_error("could not send dictionary");
+          _exit(1);
+
+        }
+
+      }
+
+      if ((use_shm ? __afl_fsrv_send_u32(len)
+                   : write(FORKSRV_FD + 1, &len, 4)) != 4) {
 
         write(2, "Error: could not send dictionary len\n",
               strlen("Error: could not send dictionary len\n"));
@@ -1144,7 +1431,7 @@ static void __afl_start_forkserver(void) {
 
       }
 
-      while (len != 0) {
+      while (!use_shm && len != 0) {
 
         s32 ret;
         ret = write(FORKSRV_FD + 1, __afl_dictionary + offset, len);
@@ -1165,7 +1452,12 @@ static void __afl_start_forkserver(void) {
 
     // send welcome message as final message
     status = version;
-    if (write(FORKSRV_FD + 1, msg, 4) != 4) { _exit(1); }
+    if ((use_shm ? __afl_fsrv_send_u32(status)
+                 : write(FORKSRV_FD + 1, msg, 4)) != 4) {
+
+      _exit(1);
+
+    }
 
   }
 
@@ -1187,7 +1479,8 @@ static void __afl_start_forkserver(void) {
 
     } else {
 
-      if (unlikely(read(FORKSRV_FD, &was_killed, 4) != 4)) {
+      if (unlikely((use_shm ? __afl_fsrv_recv_u32(&was_killed)
+                            : read(FORKSRV_FD, &was_killed, 4)) != 4)) {
 
         write_error("read from AFL++ tool");
         _exit(1);
@@ -1259,8 +1552,12 @@ static void __afl_start_forkserver(void) {
         signal(SIGCHLD, old_sigchld_handler);
         signal(SIGTERM, old_sigterm_handler);
 
-        close(FORKSRV_FD);
-        close(FORKSRV_FD + 1);
+        if (!use_shm) {
+
+          close(FORKSRV_FD);
+          close(FORKSRV_FD + 1);
+
+        }
 
         if (unlikely(__afl_forkserver_setenv)) {
 
@@ -1284,7 +1581,8 @@ static void __afl_start_forkserver(void) {
 
     /* In parent process: write PID to pipe, then wait for child. */
 
-    if (unlikely(write(FORKSRV_FD + 1, &child_pid, 4) != 4)) {
+    if (unlikely((use_shm ? __afl_fsrv_send_u32(child_pid)
+                          : write(FORKSRV_FD + 1, &child_pid, 4)) != 4)) {
 
       write_error("write to afl-fuzz");
       _exit(1);
@@ -1307,7 +1605,8 @@ static void __afl_start_forkserver(void) {
 
     /* Relay wait status to pipe, then loop back. */
 
-    if (unlikely(write(FORKSRV_FD + 1, &status, 4) != 4)) {
+    if (unlikely((use_shm ? __afl_fsrv_send_u32(status)
+                          : write(FORKSRV_FD + 1, &status, 4)) != 4)) {
 
       write_error("writing to afl-fuzz");
       _exit(1);
@@ -3522,4 +3821,3 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
   }
 
 }
-

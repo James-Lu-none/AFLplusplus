@@ -35,6 +35,7 @@
 #include <unistd.h>
 
 #include "types.h"
+#include "forkserver_ipc.h"
 
 #ifdef __linux__
 /**
@@ -119,6 +120,17 @@ typedef struct afl_forkserver {
       dev_null_fd,                      /* Persistent fd for /dev/null      */
       fsrv_ctl_fd,                      /* Fork server control pipe (write) */
       fsrv_st_fd;                       /* Fork server status pipe (read)   */
+#ifndef __AFL_USE_SOCKETS
+#ifdef __linux__
+  s32 fsrv_shm_fd;                      /* Fork server shm fd               */
+  u32 fsrv_shm_size;                    /* Fork server shm size             */
+  char fsrv_shm_path[L_tmpnam];         /* Fork server shm name             */
+  afl_fsrv_shm_t *fsrv_shm;             /* Fork server shm mapping          */
+  u32 fsrv_shm_b2a_seq;                 /* Last seen child->parent seq      */
+  s32 fsrv_shm_use_sysv;                /* Fork server shm uses SysV        */
+  s32 fsrv_shm_id;                      /* Fork server SysV shm id          */
+#endif
+#endif
 
   u32 exec_tmout;                       /* Configurable exec timeout (ms)   */
   u32 init_tmout;                       /* Configurable init timeout (ms)   */
@@ -298,4 +310,3 @@ void nyx_load_target_hash(afl_forkserver_t *fsrv);
 #endif                                                        /* ^RLIMIT_AS */
 
 #endif
-

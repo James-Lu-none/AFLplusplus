@@ -55,6 +55,12 @@
 
 #ifdef __linux__
   #include <dlfcn.h>
+#ifndef __AFL_USE_SOCKETS
+  #include <linux/futex.h>
+  #include <sys/mman.h>
+  #include <sys/shm.h>
+  #include <sys/syscall.h>
+#endif
 
 /* function to load nyx_helper function from libnyx.so */
 
@@ -290,6 +296,15 @@ void afl_fsrv_init(afl_forkserver_t *fsrv) {
   fsrv->dev_urandom_fd = -1;
   fsrv->fsrv_ctl_fd = -1;
   fsrv->fsrv_st_fd = -1;
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  fsrv->fsrv_shm_fd = -1;
+  fsrv->fsrv_shm_size = 0;
+  fsrv->fsrv_shm_path[0] = 0;
+  fsrv->fsrv_shm = NULL;
+  fsrv->fsrv_shm_b2a_seq = 0;
+  fsrv->fsrv_shm_use_sysv = 0;
+  fsrv->fsrv_shm_id = -1;
+#endif
 
   /* Settings */
   fsrv->use_stdin = true;
@@ -368,6 +383,15 @@ void afl_fsrv_init_dup(afl_forkserver_t *fsrv_to, afl_forkserver_t *from) {
   fsrv_to->child_pid = -1;
   fsrv_to->use_fauxsrv = 0;
   fsrv_to->last_run_timed_out = 0;
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  fsrv_to->fsrv_shm_fd = -1;
+  fsrv_to->fsrv_shm_size = 0;
+  fsrv_to->fsrv_shm_path[0] = 0;
+  fsrv_to->fsrv_shm = NULL;
+  fsrv_to->fsrv_shm_b2a_seq = 0;
+  fsrv_to->fsrv_shm_use_sysv = 0;
+  fsrv_to->fsrv_shm_id = -1;
+#endif
 
   fsrv_to->late_send = from->late_send;
   fsrv_to->custom_data_ptr = from->custom_data_ptr;
@@ -411,12 +435,210 @@ void afl_fsrv_setup_preload(afl_forkserver_t *fsrv, char *argv0) {
 
 }
 
+#ifndef __AFL_USE_SOCKETS
+#ifdef __linux__
+static inline int fsrv_futex_wait(u32 *addr, u32 expected,
+                                  const struct timespec *timeout_rel) {
+
+  return (int)syscall(SYS_futex, addr, FUTEX_WAIT, expected, timeout_rel, NULL,
+                      0);
+
+}
+
+static inline int fsrv_futex_wake(u32 *addr, int n) {
+
+  return (int)syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+
+}
+#endif
+#endif
+
+static ssize_t fsrv_write_u32(afl_forkserver_t *fsrv, u32 val) {
+
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
+  return write(fsrv->fsrv_ctl_fd, &val, 4);
+#else
+  if (!fsrv->fsrv_shm) { return -1; }
+  __atomic_store_n(&fsrv->fsrv_shm->a2b_val, val, __ATOMIC_RELAXED);
+  __atomic_add_fetch(&fsrv->fsrv_shm->a2b_seq, 1, __ATOMIC_RELEASE);
+  (void)fsrv_futex_wake(&fsrv->fsrv_shm->a2b_seq, 1);
+  return 4;
+#endif
+
+}
+
+static ssize_t fsrv_read_u32(afl_forkserver_t *fsrv, u32 *out,
+                             volatile u8 *stop_soon_p) {
+
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
+  return read(fsrv->fsrv_st_fd, out, 4);
+#else
+  if (!fsrv->fsrv_shm) { return -1; }
+
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&fsrv->fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
+    if (seq != fsrv->fsrv_shm_b2a_seq) {
+
+      fsrv->fsrv_shm_b2a_seq = seq;
+      *out =
+          __atomic_load_n(&fsrv->fsrv_shm->b2a_val, __ATOMIC_RELAXED);
+      __atomic_store_n(&fsrv->fsrv_shm->b2a_ack, seq, __ATOMIC_RELEASE);
+      (void)fsrv_futex_wake(&fsrv->fsrv_shm->b2a_ack, 1);
+      return 4;
+
+    }
+
+    int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq,
+                             fsrv->fsrv_shm_b2a_seq, NULL);
+    if (rc == -1) {
+
+      if (errno == EAGAIN) { continue; }
+      if (errno == EINTR) {
+
+        if (stop_soon_p && *stop_soon_p) { return -1; }
+        continue;
+
+      }
+      return -1;
+
+    }
+
+  }
+
+#endif
+
+}
+
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+static ssize_t fsrv_child_send_u32(afl_forkserver_t *fsrv, u32 val) {
+
+  if (!fsrv->fsrv_shm) { return -1; }
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&fsrv->fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
+    u32 ack = __atomic_load_n(&fsrv->fsrv_shm->b2a_ack, __ATOMIC_ACQUIRE);
+    if (ack == seq) { break; }
+
+    int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_ack, ack, NULL);
+    if (rc == -1 && errno == EAGAIN) { continue; }
+    if (rc == -1 && errno == EINTR) { return -1; }
+    if (rc == -1) { return -1; }
+
+  }
+
+  __atomic_store_n(&fsrv->fsrv_shm->b2a_val, val, __ATOMIC_RELAXED);
+  __atomic_add_fetch(&fsrv->fsrv_shm->b2a_seq, 1, __ATOMIC_RELEASE);
+  (void)fsrv_futex_wake(&fsrv->fsrv_shm->b2a_seq, 1);
+  return 4;
+
+}
+
+static ssize_t fsrv_child_recv_u32(afl_forkserver_t *fsrv, u32 *out,
+                                   u32 *last_a2b_seq) {
+
+  if (!fsrv->fsrv_shm) { return -1; }
+
+  for (;;) {
+
+    u32 seq = __atomic_load_n(&fsrv->fsrv_shm->a2b_seq, __ATOMIC_ACQUIRE);
+    if (seq != *last_a2b_seq) {
+
+      *last_a2b_seq = seq;
+      *out =
+          __atomic_load_n(&fsrv->fsrv_shm->a2b_val, __ATOMIC_RELAXED);
+      return 4;
+
+    }
+
+    int rc =
+        fsrv_futex_wait(&fsrv->fsrv_shm->a2b_seq, *last_a2b_seq, NULL);
+    if (rc == -1) {
+
+      if (errno == EAGAIN || errno == EINTR) { continue; }
+      return -1;
+
+    }
+
+  }
+
+}
+#endif
+
 /* Wrapper for poll() and read(), reading a 32 bit var.
   Returns the time passed to read.
   If the wait times out, returns timeout_ms + 1;
   Returns 0 if an error occurred (fd closed, signal, ...); */
-static u32 __attribute__((hot)) read_s32_timed(s32 fd, s32 *buf, u32 timeout_ms,
+static u32 __attribute__((hot)) read_s32_timed(afl_forkserver_t *fsrv, s32 *buf,
+                                               u32 timeout_ms,
                                                volatile u8 *stop_soon_p) {
+
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  if (fsrv->fsrv_shm) {
+
+    u32 read_start = get_cur_time_us();
+
+    for (;;) {
+
+      if (*stop_soon_p) { return 0; }
+
+      u32 seq = __atomic_load_n(&fsrv->fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
+      if (seq != fsrv->fsrv_shm_b2a_seq) {
+
+        fsrv->fsrv_shm_b2a_seq = seq;
+        *buf =
+            __atomic_load_n(&fsrv->fsrv_shm->b2a_val, __ATOMIC_RELAXED);
+        __atomic_store_n(&fsrv->fsrv_shm->b2a_ack, seq, __ATOMIC_RELEASE);
+        (void)fsrv_futex_wake(&fsrv->fsrv_shm->b2a_ack, 1);
+
+        u32 exec_ms =
+            MIN(timeout_ms, (get_cur_time_us() - read_start) / 1000);
+        return exec_ms > 0 ? exec_ms : 1;
+
+      }
+
+      if (!timeout_ms) {
+
+        int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq,
+                                 fsrv->fsrv_shm_b2a_seq, NULL);
+        if (rc == -1 && (errno == EAGAIN || errno == EINTR)) { continue; }
+        if (rc == -1) { return 0; }
+        continue;
+
+      }
+
+      u32 elapsed_us = get_cur_time_us() - read_start;
+      if (elapsed_us >= timeout_ms * 1000) {
+
+        *buf = -1;
+        return timeout_ms + 1;
+
+      }
+
+      u32 remain_us = timeout_ms * 1000 - elapsed_us;
+      struct timespec ts = {.tv_sec = remain_us / 1000000,
+                            .tv_nsec = (remain_us % 1000000) * 1000};
+      int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq,
+                               fsrv->fsrv_shm_b2a_seq, &ts);
+      if (rc == -1) {
+
+        if (errno == ETIMEDOUT) {
+
+          *buf = -1;
+          return timeout_ms + 1;
+
+        }
+
+        if (errno == EAGAIN || errno == EINTR) { continue; }
+        *buf = -1;
+        return 0;
+
+      }
+
+    }
+
+  }
+#endif
 
   int           pret;
   ssize_t       len_read;
@@ -426,7 +648,7 @@ static u32 __attribute__((hot)) read_s32_timed(s32 fd, s32 *buf, u32 timeout_ms,
   u32 read_start = get_cur_time_us();
 
   memset(&fds, 0, sizeof(fds));
-  fds[0].fd = fd;
+  fds[0].fd = fsrv->fsrv_st_fd;
   fds[0].events = POLLIN;
 
   /* set exceptfds as well to return when a child exited/closed the pipe. */
@@ -442,7 +664,7 @@ restart_poll:
 
     }
 
-    len_read = read(fd, (u8 *)buf, 4);
+    len_read = read(fsrv->fsrv_st_fd, (u8 *)buf, 4);
 
     if (likely(len_read == 4)) {  // for speed we put this first
 
@@ -479,6 +701,135 @@ restart_poll:
 
 }
 
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+static void fsrv_shm_deinit(afl_forkserver_t *fsrv) {
+
+  if (fsrv->fsrv_shm) {
+
+    if (fsrv->fsrv_shm_use_sysv) {
+
+      shmdt(fsrv->fsrv_shm);
+
+    } else {
+
+      munmap(fsrv->fsrv_shm, fsrv->fsrv_shm_size);
+
+    }
+    fsrv->fsrv_shm = NULL;
+
+  }
+
+  if (!fsrv->fsrv_shm_use_sysv && fsrv->fsrv_shm_fd >= 0) {
+
+    close(fsrv->fsrv_shm_fd);
+    fsrv->fsrv_shm_fd = -1;
+
+  }
+
+  if (!fsrv->fsrv_shm_use_sysv && fsrv->fsrv_shm_path[0]) {
+
+    shm_unlink(fsrv->fsrv_shm_path);
+    fsrv->fsrv_shm_path[0] = 0;
+
+  }
+
+  if (fsrv->fsrv_shm_use_sysv && fsrv->fsrv_shm_id >= 0) {
+
+    shmctl(fsrv->fsrv_shm_id, IPC_RMID, NULL);
+    fsrv->fsrv_shm_id = -1;
+
+  }
+
+  fsrv->fsrv_shm_use_sysv = 0;
+
+  unsetenv(AFL_FORKSRV_SHM_ENV_VAR);
+
+}
+
+static void fsrv_shm_init(afl_forkserver_t *fsrv) {
+
+  if (fsrv->fsrv_shm) { fsrv_shm_deinit(fsrv); }
+
+  fsrv->fsrv_shm_size = sizeof(afl_fsrv_shm_t);
+  fsrv->fsrv_shm_use_sysv = 0;
+  fsrv->fsrv_shm_id = -1;
+
+  snprintf(fsrv->fsrv_shm_path, sizeof(fsrv->fsrv_shm_path),
+           "/afl_fsrv_%d_%ld", getpid(), random());
+
+  fsrv->fsrv_shm_fd = shm_open(fsrv->fsrv_shm_path, O_RDWR | O_CREAT | O_EXCL,
+                               fsrv->perm);
+  if (fsrv->fsrv_shm_fd == -1) {
+
+    fsrv->fsrv_shm_id = shmget(IPC_PRIVATE, fsrv->fsrv_shm_size,
+                               IPC_CREAT | fsrv->perm);
+    if (fsrv->fsrv_shm_id == -1) { PFATAL("shmget() failed"); }
+    fsrv->fsrv_shm_use_sysv = 1;
+
+  }
+
+  if (!fsrv->fsrv_shm_use_sysv &&
+      ftruncate(fsrv->fsrv_shm_fd, fsrv->fsrv_shm_size)) {
+
+    close(fsrv->fsrv_shm_fd);
+    fsrv->fsrv_shm_fd = -1;
+    shm_unlink(fsrv->fsrv_shm_path);
+    fsrv->fsrv_shm_path[0] = 0;
+    PFATAL("ftruncate() failed");
+
+  }
+
+  if (fsrv->fsrv_shm_use_sysv) {
+
+    fsrv->fsrv_shm =
+        (afl_fsrv_shm_t *)shmat(fsrv->fsrv_shm_id, NULL, 0);
+    if (!fsrv->fsrv_shm || fsrv->fsrv_shm == (void *)-1) {
+
+      fsrv->fsrv_shm = NULL;
+      shmctl(fsrv->fsrv_shm_id, IPC_RMID, NULL);
+      fsrv->fsrv_shm_id = -1;
+      PFATAL("shmat() failed");
+
+    }
+
+  } else {
+
+    fsrv->fsrv_shm =
+        mmap(0, fsrv->fsrv_shm_size, PROT_READ | PROT_WRITE, MAP_SHARED,
+             fsrv->fsrv_shm_fd, 0);
+    if (fsrv->fsrv_shm == MAP_FAILED) {
+
+      close(fsrv->fsrv_shm_fd);
+      fsrv->fsrv_shm_fd = -1;
+      shm_unlink(fsrv->fsrv_shm_path);
+      fsrv->fsrv_shm_path[0] = 0;
+      PFATAL("mmap() failed");
+
+    }
+
+  }
+
+  memset(fsrv->fsrv_shm, 0, fsrv->fsrv_shm_size);
+  fsrv->fsrv_shm->magic = AFL_FORKSRV_SHM_MAGIC;
+  fsrv->fsrv_shm->ready = 1;
+  fsrv->fsrv_shm_b2a_seq =
+      __atomic_load_n(&fsrv->fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
+
+  if (fsrv->fsrv_shm_use_sysv) {
+
+    char id_buf[32];
+    snprintf(id_buf, sizeof(id_buf), "%d", fsrv->fsrv_shm_id);
+    setenv(AFL_FORKSRV_SHM_ENV_VAR, id_buf, 1);
+
+  } else {
+
+    setenv(AFL_FORKSRV_SHM_ENV_VAR, fsrv->fsrv_shm_path, 1);
+
+  }
+
+}
+#endif
+
 /* Internal forkserver for non_instrumented_mode=1 and non-forkserver mode runs.
   It execvs for each fork, forwarding exit codes and child pids to afl. */
 
@@ -492,7 +843,17 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
   /* Phone home and tell the parent that we're OK. If parent isn't there,
      assume we're not running in forkserver mode and just execute program. */
 
-  if (write(FORKSRV_FD + 1, tmp, 4) != 4) {
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  u32 last_a2b_seq = 0;
+  if (fsrv->fsrv_shm) {
+
+    last_a2b_seq =
+        __atomic_load_n(&fsrv->fsrv_shm->a2b_seq, __ATOMIC_ACQUIRE);
+    if (fsrv_child_send_u32(fsrv, 0) != 4) { abort(); }
+
+  } else
+#endif
+      if (write(FORKSRV_FD + 1, tmp, 4) != 4) {
 
     abort();  // TODO: Abort?
 
@@ -507,7 +868,22 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
     /* Wait for parent by reading from the pipe. Exit if read fails. */
 
-    if (read(FORKSRV_FD, &was_killed, 4) != 4) { exit(0); }
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+    if (fsrv->fsrv_shm) {
+
+      if (fsrv_child_recv_u32(fsrv, &was_killed, &last_a2b_seq) != 4) {
+
+        exit(0);
+
+      }
+
+    } else
+#endif
+        if (read(FORKSRV_FD, &was_killed, 4) != 4) {
+
+      exit(0);
+
+    }
 
     /* Create a clone of our process. */
 
@@ -540,8 +916,10 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
       // FORKSRV_FD is for communication with AFL, we don't need it in the
       // child
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
       close(FORKSRV_FD);
       close(FORKSRV_FD + 1);
+#endif
 
       if (fsrv->gid_set) {
 
@@ -578,7 +956,18 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
     /* In parent process: write PID to AFL. */
 
-    if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) { exit(0); }
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+    if (fsrv->fsrv_shm) {
+
+      if (fsrv_child_send_u32(fsrv, child_pid) != 4) { exit(0); }
+
+    } else
+#endif
+        if (write(FORKSRV_FD + 1, &child_pid, 4) != 4) {
+
+      exit(0);
+
+    }
 
     /* after child exited, get and relay exit status to parent through waitpid.
      */
@@ -592,7 +981,18 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
 
     /* Relay wait status to AFL pipe, then loop back. */
 
-    if (write(FORKSRV_FD + 1, &status, 4) != 4) { exit(1); }
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+    if (fsrv->fsrv_shm) {
+
+      if (fsrv_child_send_u32(fsrv, status) != 4) { exit(1); }
+
+    } else
+#endif
+        if (write(FORKSRV_FD + 1, &status, 4) != 4) {
+
+      exit(1);
+
+    }
 
   }
 
@@ -669,7 +1069,9 @@ void nyx_load_target_hash(afl_forkserver_t *fsrv) {
 void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
                     volatile u8 *stop_soon_p, u8 debug_child_output) {
 
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
   int   st_pipe[2], ctl_pipe[2];
+#endif
   u32   status;
   s32   rlen;
   char *ignore_autodict = getenv("AFL_NO_AUTODICT");
@@ -980,7 +1382,11 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
   }
 
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
   if (pipe(st_pipe) || pipe(ctl_pipe)) { PFATAL("pipe() failed"); }
+#else
+  fsrv_shm_init(fsrv);
+#endif
 
   fsrv->last_run_timed_out = 0;
   fsrv->fsrv_pid = fork();
@@ -1067,6 +1473,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
     /* Set up control and status pipes, close the unneeded original fds. */
 
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
     if (dup2(ctl_pipe[0], FORKSRV_FD) < 0) { PFATAL("dup2() failed"); }
     if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) { PFATAL("dup2() failed"); }
 
@@ -1074,6 +1481,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
     close(ctl_pipe[1]);
     close(st_pipe[0]);
     close(st_pipe[1]);
+#endif
 
     if (fsrv->out_dir_fd >= 0) close(fsrv->out_dir_fd);
     if (fsrv->dev_null_fd >= 0) close(fsrv->dev_null_fd);
@@ -1115,19 +1523,20 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
   /* Close the unneeded endpoints. */
 
+#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
   close(ctl_pipe[0]);
   close(st_pipe[1]);
 
   fsrv->fsrv_ctl_fd = ctl_pipe[1];
   fsrv->fsrv_st_fd = st_pipe[0];
+#endif
 
   /* Wait for the fork server to come up, but don't wait too long. */
 
   rlen = 0;
   if (fsrv->init_tmout) {
 
-    u32 time_ms = read_s32_timed(fsrv->fsrv_st_fd, &status, fsrv->init_tmout,
-                                 stop_soon_p);
+    u32 time_ms = read_s32_timed(fsrv, &status, fsrv->init_tmout, stop_soon_p);
 
     if (!time_ms) {
 
@@ -1158,7 +1567,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
   } else {
 
-    rlen = read(fsrv->fsrv_st_fd, &status, 4);
+    rlen = fsrv_read_u32(fsrv, &status, stop_soon_p);
 
   }
 
@@ -1205,7 +1614,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
       u32 keep = status;
       status ^= 0xffffffff;
-      if (write(fsrv->fsrv_ctl_fd, &status, 4) != 4) {
+      if (fsrv_write_u32(fsrv, status) != 4) {
 
         FATAL("Writing to forkserver failed.");
 
@@ -1217,7 +1626,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
       }
 
-      rlen = read(fsrv->fsrv_st_fd, &status, 4);
+      rlen = fsrv_read_u32(fsrv, &status, stop_soon_p);
 
       if (getenv("AFL_DEBUG")) {
 
@@ -1228,7 +1637,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
       if ((status & FS_NEW_OPT_MAPSIZE)) {
 
         u32 tmp_map_size;
-        rlen = read(fsrv->fsrv_st_fd, &tmp_map_size, 4);
+        rlen = fsrv_read_u32(fsrv, &tmp_map_size, stop_soon_p);
 
         if (!fsrv->map_size) { fsrv->map_size = MAP_SIZE; }
 
@@ -1290,7 +1699,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
         // even if we do not need the dictionary we have to read it
 
         u32 dict_size;
-        if (read(fsrv->fsrv_st_fd, &dict_size, 4) != 4) {
+        if (fsrv_read_u32(fsrv, &dict_size, stop_soon_p) != 4) {
 
           FATAL("Reading from forkserver failed.");
 
@@ -1311,23 +1720,43 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
         }
 
-        while (offset < dict_size) {
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+        if (fsrv->fsrv_shm) {
 
-          rlen = read(fsrv->fsrv_st_fd, dict + offset, dict_size - offset);
-          if (rlen > 0) {
+          if (dict_size > AFL_FORKSRV_SHM_PAYLOAD_SIZE) {
 
-            offset += rlen;
-
-          } else {
-
-            FATAL(
-                "Reading autodictionary fail at position %u with %u bytes "
-                "left.",
-                offset, dict_size - offset);
+            FATAL("Dictionary is too large for forkserver shm payload: %u",
+                  dict_size);
 
           }
 
+          memcpy(dict, fsrv->fsrv_shm->b2a_buf, dict_size);
+          offset = dict_size;
+
+        } else {
+#endif
+
+          while (offset < dict_size) {
+
+            rlen = read(fsrv->fsrv_st_fd, dict + offset, dict_size - offset);
+            if (rlen > 0) {
+
+              offset += rlen;
+
+            } else {
+
+              FATAL(
+                  "Reading autodictionary fail at position %u with %u bytes "
+                  "left.",
+                  offset, dict_size - offset);
+
+            }
+
+          }
+
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
         }
+#endif
 
         offset = 0;
         while (offset < dict_size && (u8)dict[offset] + offset < dict_size) {
@@ -1355,7 +1784,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
       }
 
       u32 status2;
-      rlen = read(fsrv->fsrv_st_fd, &status2, 4);
+      rlen = fsrv_read_u32(fsrv, &status2, stop_soon_p);
 
       // Mask out expected capability flags when comparing handshake status
       u32 expected_flags = 0;
@@ -1435,7 +1864,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
             if ((status & FS_OPT_AUTODICT) == 0 || ignore_autodict) {
 
               u32 send_status = (FS_OPT_ENABLED | FS_OPT_SHDMEM_FUZZ);
-              if (write(fsrv->fsrv_ctl_fd, &send_status, 4) != 4) {
+              if (fsrv_write_u32(fsrv, send_status) != 4) {
 
                 FATAL("Writing to forkserver failed.");
 
@@ -1505,7 +1934,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
               }
 
-              if (write(fsrv->fsrv_ctl_fd, &status, 4) != 4) {
+              if (fsrv_write_u32(fsrv, status) != 4) {
 
                 FATAL("Writing to forkserver failed.");
 
@@ -1527,13 +1956,13 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
             }
 
-            if (write(fsrv->fsrv_ctl_fd, &status, 4) != 4) {
+            if (fsrv_write_u32(fsrv, status) != 4) {
 
               FATAL("Writing to forkserver failed.");
 
             }
 
-            if (read(fsrv->fsrv_st_fd, &status, 4) != 4) {
+            if (fsrv_read_u32(fsrv, &status, stop_soon_p) != 4) {
 
               FATAL("Reading from forkserver failed.");
 
@@ -1555,24 +1984,45 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
             }
 
-            while (len != 0) {
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+            if (fsrv->fsrv_shm) {
 
-              rlen = read(fsrv->fsrv_st_fd, dict + offset, len);
-              if (rlen > 0) {
+              if (status > AFL_FORKSRV_SHM_PAYLOAD_SIZE) {
 
-                len -= rlen;
-                offset += rlen;
-
-              } else {
-
-                FATAL(
-                    "Reading autodictionary fail at position %u with %u bytes "
-                    "left.",
-                    offset, len);
+                FATAL("Dictionary is too large for forkserver shm payload: %u",
+                      status);
 
               }
 
+              memcpy(dict, fsrv->fsrv_shm->b2a_buf, status);
+              len = 0;
+              offset = status;
+
+            } else {
+#endif
+
+              while (len != 0) {
+
+                rlen = read(fsrv->fsrv_st_fd, dict + offset, len);
+                if (rlen > 0) {
+
+                  len -= rlen;
+                  offset += rlen;
+
+                } else {
+
+                  FATAL(
+                      "Reading autodictionary fail at position %u with %u bytes "
+                      "left.",
+                      offset, len);
+
+                }
+
+              }
+
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
             }
+#endif
 
             offset = 0;
             while (offset < (u32)status &&
@@ -1849,6 +2299,10 @@ void afl_fsrv_kill(afl_forkserver_t *fsrv) {
 
   }
 
+#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+  fsrv_shm_deinit(fsrv);
+#endif
+
   fsrv->fsrv_pid = -1;
   fsrv->child_pid = -1;
 
@@ -2104,7 +2558,7 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
   /* we have the fork server (or faux server) up and running
   First, tell it if the previous run timed out. */
 
-  if ((res = write(fsrv->fsrv_ctl_fd, &write_value, 4)) != 4) {
+  if ((res = fsrv_write_u32(fsrv, write_value)) != 4) {
 
     if (*stop_soon_p) { return 0; }
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -2113,7 +2567,7 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
 
   fsrv->last_run_timed_out = 0;
 
-  if ((res = read(fsrv->fsrv_st_fd, &fsrv->child_pid, 4)) != 4) {
+  if ((res = fsrv_read_u32(fsrv, &fsrv->child_pid, stop_soon_p)) != 4) {
 
     if (*stop_soon_p) { return 0; }
     RPFATAL(res, "Unable to request new process from fork server (OOM?)");
@@ -2188,8 +2642,7 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
 
   }
 
-  exec_ms = read_s32_timed(fsrv->fsrv_st_fd, &fsrv->child_status, timeout,
-                           stop_soon_p);
+  exec_ms = read_s32_timed(fsrv, &fsrv->child_status, timeout, stop_soon_p);
 
   if (exec_ms > timeout) {
 
@@ -2205,7 +2658,11 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
     }
 
     fsrv->last_run_timed_out = 1;
-    if (read(fsrv->fsrv_st_fd, &fsrv->child_status, 4) < 4) { exec_ms = 0; }
+    if (fsrv_read_u32(fsrv, &fsrv->child_status, stop_soon_p) < 4) {
+
+      exec_ms = 0;
+
+    }
 
   }
 
@@ -2385,4 +2842,3 @@ void afl_fsrv_deinit(afl_forkserver_t *fsrv) {
   list_remove(&fsrv_list, fsrv);
 
 }
-
