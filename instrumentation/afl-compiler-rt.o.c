@@ -18,6 +18,8 @@
     #define _GNU_SOURCE
   #endif
   #include <link.h>
+#else
+  #define __AFL_USE_SOCKETS
 #endif
 
 #ifdef __AFL_CODE_COVERAGE
@@ -70,10 +72,8 @@ __attribute__((weak)) void __sanitizer_symbolize_pc(void *, const char *fmt,
 #if !defined(__HAIKU__) && !defined(__OpenBSD__)
   #include <sys/syscall.h>
 #endif
-#ifdef __linux__
-  #ifndef __AFL_USE_SOCKETS
-    #include <linux/futex.h>
-  #endif
+#ifndef __AFL_USE_SOCKETS
+  #include <linux/futex.h>
 #endif
 #ifndef USEMMAP
   #include <sys/shm.h>
@@ -190,7 +190,7 @@ u32 __afl_old_forkserver;
 
 u8 __afl_forkserver_setenv = 0;
 
-#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+#if !defined(__AFL_USE_SOCKETS)
 static afl_fsrv_shm_t *__afl_fsrv_shm;
 static u32             __afl_fsrv_last_a2b_seq;
 #endif
@@ -357,7 +357,7 @@ void __afl_trace(const u32 x) {
 
 }
 
-#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+#if !defined(__AFL_USE_SOCKETS)
 static inline int afl_futex_wait(u32 *addr, u32 expected,
                                  const struct timespec *timeout_rel) {
 
@@ -421,19 +421,18 @@ static void __afl_map_fsrv_shm(void) {
       shmdt(map);
 
     }
+
     return;
 
   }
 
   __afl_fsrv_shm = shm;
-  __afl_fsrv_last_a2b_seq =
-      __atomic_load_n(&shm->a2b_seq, __ATOMIC_ACQUIRE);
+  __afl_fsrv_last_a2b_seq = __atomic_load_n(&shm->a2b_seq, __ATOMIC_ACQUIRE);
 
 }
 
-static int __afl_fsrv_send_u32(u32 val) {
+static inline int __afl_fsrv_send_u32(u32 val) {
 
-  if (!__afl_fsrv_shm) { return -1; }
   for (;;) {
 
     u32 seq = __atomic_load_n(&__afl_fsrv_shm->b2a_seq, __ATOMIC_ACQUIRE);
@@ -441,8 +440,19 @@ static int __afl_fsrv_send_u32(u32 val) {
     if (ack == seq) { break; }
 
     int rc = afl_futex_wait(&__afl_fsrv_shm->b2a_ack, ack, NULL);
-    if (rc == -1 && (errno == EAGAIN || errno == EINTR)) { continue; }
-    if (rc == -1) { return -1; }
+    if (unlikely(rc == -1)) {
+
+      if ((errno == EAGAIN || errno == EINTR)) {
+
+        continue;
+
+      } else {
+
+        return -1;
+
+      }
+
+    }
 
   }
 
@@ -453,14 +463,12 @@ static int __afl_fsrv_send_u32(u32 val) {
 
 }
 
-static int __afl_fsrv_recv_u32(u32 *out) {
-
-  if (!__afl_fsrv_shm) { return -1; }
+static inline int __afl_fsrv_recv_u32(u32 *out) {
 
   for (;;) {
 
     u32 seq = __atomic_load_n(&__afl_fsrv_shm->a2b_seq, __ATOMIC_ACQUIRE);
-    if (seq != __afl_fsrv_last_a2b_seq) {
+    if (unlikely(seq != __afl_fsrv_last_a2b_seq)) {
 
       __afl_fsrv_last_a2b_seq = seq;
       *out = __atomic_load_n(&__afl_fsrv_shm->a2b_val, __ATOMIC_RELAXED);
@@ -470,7 +478,7 @@ static int __afl_fsrv_recv_u32(u32 *out) {
 
     int rc =
         afl_futex_wait(&__afl_fsrv_shm->a2b_seq, __afl_fsrv_last_a2b_seq, NULL);
-    if (rc == -1) {
+    if (unlikely(rc == -1)) {
 
       if (errno == EAGAIN || errno == EINTR) { continue; }
       return -1;
@@ -481,9 +489,7 @@ static int __afl_fsrv_recv_u32(u32 *out) {
 
 }
 
-static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
-
-  if (!__afl_fsrv_shm) { return -1; }
+static inline int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
 
   u64 start_us = __afl_time_us();
 
@@ -500,10 +506,15 @@ static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
 
     if (!timeout_ms) {
 
-      int rc = afl_futex_wait(&__afl_fsrv_shm->a2b_seq,
-                              __afl_fsrv_last_a2b_seq, NULL);
-      if (rc == -1 && (errno == EAGAIN || errno == EINTR)) { continue; }
-      if (rc == -1) { return -1; }
+      int rc = afl_futex_wait(&__afl_fsrv_shm->a2b_seq, __afl_fsrv_last_a2b_seq,
+                              NULL);
+      if (unlikely(rc == -1)) {
+
+        if (errno == EAGAIN || errno == EINTR) { continue; }
+        return -1;
+
+      }
+
       continue;
 
     }
@@ -511,12 +522,12 @@ static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
     u64 elapsed_us = __afl_time_us() - start_us;
     if (elapsed_us >= (u64)timeout_ms * 1000ULL) { return 0; }
 
-    u64 remain_us = (u64)timeout_ms * 1000ULL - elapsed_us;
+    u64             remain_us = (u64)timeout_ms * 1000ULL - elapsed_us;
     struct timespec ts = {.tv_sec = remain_us / 1000000ULL,
                           .tv_nsec = (remain_us % 1000000ULL) * 1000ULL};
-    int rc = afl_futex_wait(&__afl_fsrv_shm->a2b_seq,
-                            __afl_fsrv_last_a2b_seq, &ts);
-    if (rc == -1) {
+    int             rc =
+        afl_futex_wait(&__afl_fsrv_shm->a2b_seq, __afl_fsrv_last_a2b_seq, &ts);
+    if (unlikely(rc == -1)) {
 
       if (errno == ETIMEDOUT) { return 0; }
       if (errno == EAGAIN || errno == EINTR) { continue; }
@@ -528,7 +539,8 @@ static int __afl_fsrv_recv_u32_tmo(u32 *out, u32 timeout_ms) {
 
 }
 
-static int __afl_fsrv_send_dict(const u8 *buf, u32 len) {
+// FIXME!
+static int inline __afl_fsrv_send_dict(const u8 *buf, u32 len) {
 
   if (!__afl_fsrv_shm) { return -1; }
   if (len > AFL_FORKSRV_SHM_PAYLOAD_SIZE) { return -1; }
@@ -538,6 +550,7 @@ static int __afl_fsrv_send_dict(const u8 *buf, u32 len) {
   return 0;
 
 }
+
 #else
 static void __afl_map_fsrv_shm(void) {
 
@@ -574,6 +587,7 @@ static int __afl_fsrv_send_dict(const u8 *buf, u32 len) {
   return -1;
 
 }
+
 #endif
 
 /* Error reporting to forkserver controller */
@@ -583,7 +597,7 @@ static void send_forkserver_error(int error) {
   u32 status;
   if (!error || error > 0xffff) return;
   status = (FS_NEW_ERROR | error);
-#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+#if !defined(__AFL_USE_SOCKETS)
   __afl_map_fsrv_shm();
   if (__afl_fsrv_shm) {
 
@@ -591,6 +605,7 @@ static void send_forkserver_error(int error) {
     return;
 
   }
+
 #endif
   if (write(FORKSRV_FD + 1, (char *)&status, 4) != 4) { return; }
 
@@ -772,16 +787,17 @@ static void __afl_map_shm(void) {
 
   }
 
-#if defined(__AFL_USE_SOCKETS) || !defined(__linux__)
+#if defined(__AFL_USE_SOCKETS)
   if (__afl_sharedmem_fuzzing && (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
                                   fcntl(FORKSRV_FD, F_GETFD) == -1 ||
                                   fcntl(FORKSRV_FD + 1, F_GETFD) == -1)) {
+
 #else
-  if (__afl_sharedmem_fuzzing &&
-      (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
-       (!getenv(AFL_FORKSRV_SHM_ENV_VAR) &&
-        (fcntl(FORKSRV_FD, F_GETFD) == -1 ||
-         fcntl(FORKSRV_FD + 1, F_GETFD) == -1)))) {
+  if (__afl_sharedmem_fuzzing && (!id_str || !getenv(SHM_FUZZ_ENV_VAR) ||
+                                  (!getenv(AFL_FORKSRV_SHM_ENV_VAR) &&
+                                   (fcntl(FORKSRV_FD, F_GETFD) == -1 ||
+                                    fcntl(FORKSRV_FD + 1, F_GETFD) == -1)))) {
+
 #endif
 
     if (__afl_debug) {
@@ -1330,7 +1346,7 @@ static void __afl_start_forkserver(void) {
   }
 
   int use_shm = 0;
-#if !defined(__AFL_USE_SOCKETS) && defined(__linux__)
+#if !defined(__AFL_USE_SOCKETS)
   __afl_map_fsrv_shm();
   if (__afl_fsrv_shm) { use_shm = 1; }
 #endif
@@ -1339,8 +1355,8 @@ static void __afl_start_forkserver(void) {
      assume we're not running in forkserver mode and just execute program. */
 
   // return because possible non-forkserver usage
-  if ((use_shm ? __afl_fsrv_send_u32(status)
-               : write(FORKSRV_FD + 1, msg, 4)) != 4) {
+  if ((use_shm ? __afl_fsrv_send_u32(status) : write(FORKSRV_FD + 1, msg, 4)) !=
+      4) {
 
     __afl_ijon_enabled = 0;
     __afl_ijon_map_increased = 1;
@@ -1365,6 +1381,7 @@ static void __afl_start_forkserver(void) {
       if (read(FORKSRV_FD, reply, 4) != 4) { _exit(1); }
 
     }
+
     if (tmp != status2) {
 
       write_error("wrong forkserver message from AFL++ tool");
@@ -1406,7 +1423,7 @@ static void __afl_start_forkserver(void) {
     // FS_NEW_OPT_SHDMEM_FUZZ - no data
 
     // FS_NEW_OPT_AUTODICT - send autodictionary
-    if (__afl_dictionary_len && __afl_dictionary) {
+    if (__afl_dictionary_len && __afl_dictionary && 1 == 0) {  // FIXME BUG TODO
 
       // pass the dictionary through the forkserver FD
       u32 len = __afl_dictionary_len, offset = 0;
@@ -1479,8 +1496,8 @@ static void __afl_start_forkserver(void) {
 
     } else {
 
-      if (unlikely((use_shm ? __afl_fsrv_recv_u32(&was_killed)
-                            : read(FORKSRV_FD, &was_killed, 4)) != 4)) {
+      if (unlikely((likely(use_shm) ? __afl_fsrv_recv_u32(&was_killed)
+                                    : read(FORKSRV_FD, &was_killed, 4)) != 4)) {
 
         write_error("read from AFL++ tool");
         _exit(1);
@@ -1581,8 +1598,9 @@ static void __afl_start_forkserver(void) {
 
     /* In parent process: write PID to pipe, then wait for child. */
 
-    if (unlikely((use_shm ? __afl_fsrv_send_u32(child_pid)
-                          : write(FORKSRV_FD + 1, &child_pid, 4)) != 4)) {
+    if (unlikely((likely(use_shm)
+                      ? __afl_fsrv_send_u32(child_pid)
+                      : write(FORKSRV_FD + 1, &child_pid, 4)) != 4)) {
 
       write_error("write to afl-fuzz");
       _exit(1);
@@ -1605,8 +1623,8 @@ static void __afl_start_forkserver(void) {
 
     /* Relay wait status to pipe, then loop back. */
 
-    if (unlikely((use_shm ? __afl_fsrv_send_u32(status)
-                          : write(FORKSRV_FD + 1, &status, 4)) != 4)) {
+    if (unlikely((likely(use_shm) ? __afl_fsrv_send_u32(status)
+                                  : write(FORKSRV_FD + 1, &status, 4)) != 4)) {
 
       write_error("writing to afl-fuzz");
       _exit(1);
@@ -3821,3 +3839,4 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
   }
 
 }
+

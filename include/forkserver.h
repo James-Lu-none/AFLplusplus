@@ -41,7 +41,6 @@
 /**
  * Nyx related typedefs taken from libnyx.h
  */
-
 typedef enum NyxReturnValue {
 
   Normal,
@@ -101,6 +100,8 @@ typedef struct {
 
 /* Imports helper functions to enable Nyx mode (Linux only )*/
 nyx_plugin_handler_t *afl_load_libnyx_plugin(u8 *libnyx_binary);
+#else
+  #define __AFL_USE_SOCKETS
 #endif
 
 typedef struct afl_forkserver {
@@ -121,15 +122,13 @@ typedef struct afl_forkserver {
       fsrv_ctl_fd,                      /* Fork server control pipe (write) */
       fsrv_st_fd;                       /* Fork server status pipe (read)   */
 #ifndef __AFL_USE_SOCKETS
-#ifdef __linux__
-  s32 fsrv_shm_fd;                      /* Fork server shm fd               */
-  u32 fsrv_shm_size;                    /* Fork server shm size             */
+  s32  fsrv_shm_fd;                     /* Fork server shm fd               */
+  u32  fsrv_shm_size;                   /* Fork server shm size             */
   char fsrv_shm_path[L_tmpnam];         /* Fork server shm name             */
   afl_fsrv_shm_t *fsrv_shm;             /* Fork server shm mapping          */
-  u32 fsrv_shm_b2a_seq;                 /* Last seen child->parent seq      */
-  s32 fsrv_shm_use_sysv;                /* Fork server shm uses SysV        */
-  s32 fsrv_shm_id;                      /* Fork server SysV shm id          */
-#endif
+  u32             fsrv_shm_b2a_seq;     /* Last seen child->parent seq      */
+  s32             fsrv_shm_use_sysv;    /* Fork server shm uses SysV        */
+  s32             fsrv_shm_id;          /* Fork server SysV shm id          */
 #endif
 
   u32 exec_tmout;                       /* Configurable exec timeout (ms)   */
@@ -310,3 +309,4 @@ void nyx_load_target_hash(afl_forkserver_t *fsrv);
 #endif                                                        /* ^RLIMIT_AS */
 
 #endif
+
