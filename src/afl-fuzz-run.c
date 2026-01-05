@@ -435,7 +435,8 @@ static void write_with_gap(afl_state_t *afl, u8 *mem, u32 len, u32 skip_at,
 
     }
 
-    *afl->fsrv.shmem_fuzz_len = new_size;
+    __atomic_store_n(afl->fsrv.shmem_fuzz_len, (u32)new_size,
+                     __ATOMIC_RELEASE);
 
 #ifdef _DEBUG
     if (afl->debug) {
@@ -1513,4 +1514,3 @@ u8 __attribute__((hot)) common_fuzz_stuff(afl_state_t *afl, u8 *out_buf,
   return 0;
 
 }
-

@@ -487,9 +487,26 @@ static inline ssize_t fsrv_read_u32(afl_forkserver_t *fsrv, u32 *out,
 
     }
 
-    int rc =
-        fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq, fsrv->fsrv_shm_b2a_seq, NULL);
+    const struct timespec *ts = NULL;
+    struct timespec        ts_local;
+    if (stop_soon_p) {
+
+      ts_local.tv_sec = 0;
+      ts_local.tv_nsec = 50 * 1000 * 1000;
+      ts = &ts_local;
+
+    }
+
+    int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq,
+                             fsrv->fsrv_shm_b2a_seq, ts);
     if (unlikely(rc == -1)) {
+
+      if (errno == ETIMEDOUT) {
+
+        if (stop_soon_p && *stop_soon_p) { return -1; }
+        continue;
+
+      }
 
       if (errno == EAGAIN) { continue; }
       if (errno == EINTR) {
@@ -595,9 +612,26 @@ static u32 __attribute__((hot)) read_s32_timed(afl_forkserver_t *fsrv, s32 *buf,
 
     if (!timeout_ms) {
 
-      int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq, fsrv->fsrv_shm_b2a_seq,
-                               NULL);
+      const struct timespec *ts = NULL;
+      struct timespec        ts_local;
+      if (stop_soon_p) {
+
+        ts_local.tv_sec = 0;
+        ts_local.tv_nsec = 50 * 1000 * 1000;
+        ts = &ts_local;
+
+      }
+
+      int rc = fsrv_futex_wait(&fsrv->fsrv_shm->b2a_seq,
+                               fsrv->fsrv_shm_b2a_seq, ts);
       if (unlikely(rc == -1)) {
+
+        if (errno == ETIMEDOUT) {
+
+          if (stop_soon_p && *stop_soon_p) { return 0; }
+          continue;
+
+        }
 
         if (errno == EAGAIN || errno == EINTR) { continue; }
         return 0;
@@ -616,7 +650,8 @@ static u32 __attribute__((hot)) read_s32_timed(afl_forkserver_t *fsrv, s32 *buf,
 
     }
 
-    u32             remain_us = timeout_ms * 1000 - elapsed_us;
+    u32 remain_us = timeout_ms * 1000 - elapsed_us;
+    if (stop_soon_p && remain_us > 50 * 1000) { remain_us = 50 * 1000; }
     struct timespec ts = {.tv_sec = remain_us / 1000000,
                           .tv_nsec = (remain_us % 1000000) * 1000};
     int             rc =
@@ -2394,8 +2429,8 @@ void __attribute__((hot)) afl_fsrv_write_to_testcase(afl_forkserver_t *fsrv,
 
     if (unlikely(len > MAX_FILE)) len = MAX_FILE;
 
-    *fsrv->shmem_fuzz_len = len;
     memcpy(fsrv->shmem_fuzz, buf, len);
+    __atomic_store_n(fsrv->shmem_fuzz_len, (u32)len, __ATOMIC_RELEASE);
 #ifdef _DEBUG
     if (getenv("AFL_DEBUG")) {
 
@@ -2856,4 +2891,3 @@ void afl_fsrv_deinit(afl_forkserver_t *fsrv) {
   list_remove(&fsrv_list, fsrv);
 
 }
-

@@ -59,6 +59,7 @@ extern "C" {
 
 #include "config.h"
 #include "types.h"
+#include "forkserver_ipc.h"
 #include "cmplog.h"
 
 #ifdef _DEBUG
@@ -379,9 +380,12 @@ __attribute__((weak)) int LLVMFuzzerRunDriver(
 
   }
 
+  bool has_fsrv_fds =
+      (fcntl(FORKSRV_FD, F_GETFD) != -1 &&
+       fcntl(FORKSRV_FD + 1, F_GETFD) != -1);
+  bool has_fsrv_shm = (getenv(AFL_FORKSRV_SHM_ENV_VAR) != NULL);
   bool in_afl = !(!getenv(SHM_FUZZ_ENV_VAR) || !getenv(SHM_ENV_VAR) ||
-                  fcntl(FORKSRV_FD, F_GETFD) == -1 ||
-                  fcntl(FORKSRV_FD + 1, F_GETFD) == -1);
+                  (!has_fsrv_fds && !has_fsrv_shm));
 
   if (!in_afl) { __afl_sharedmem_fuzzing = 0; }
 
@@ -444,7 +448,7 @@ __attribute__((weak)) int LLVMFuzzerRunDriver(
 
     while (__afl_persistent_loop(N)) {
 
-      size_t length = *__afl_fuzz_len;
+      size_t length = __atomic_load_n(__afl_fuzz_len, __ATOMIC_ACQUIRE);
 
       if (likely(length)) {
 
@@ -477,7 +481,8 @@ __attribute__((weak)) int LLVMFuzzerRunDriver(
 
     while (__afl_persistent_loop(N)) {
 
-      if (unlikely(callback(__afl_fuzz_ptr, *__afl_fuzz_len) == -1)) {
+      size_t length = __atomic_load_n(__afl_fuzz_len, __ATOMIC_ACQUIRE);
+      if (unlikely(callback(__afl_fuzz_ptr, length) == -1)) {
 
         memset_noasan(__afl_area_ptr, 0, __afl_map_size);
         __afl_area_ptr[0] = 1;
@@ -505,4 +510,3 @@ __attribute__((weak)) int LLVMFuzzerRunDriver(
 }
 
 #endif
-
