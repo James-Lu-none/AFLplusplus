@@ -150,6 +150,10 @@ ifdef PROFILING
   override LDFLAGS += -pg
 endif
 
+ifdef VAR
+  override CFLAGS_OPT += -DVAR=1
+endif
+
 ifdef INTROSPECTION
   $(info Compiling with introspection documentation)
   override CFLAGS_OPT += -DINTROSPECTION=1
