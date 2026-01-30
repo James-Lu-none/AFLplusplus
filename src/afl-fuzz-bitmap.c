@@ -48,19 +48,29 @@ static const u8 simplify_lookup[256] = {
 static const u8 count_class_lookup8[256] = {
 
 #ifndef VAR
-    [0] = 0,           [1] = 1,        [2] = 2,         [3] = 4,
-    [4] = 8,           [5 ... 7] = 16, [9 ... 15] = 32, [16 ... 31] = 64,
-    [32 ... 255] = 128
-#else
+const u8 count_class_lookup8[256] = {
     [0] = 0,
-    [1] = 1,
-    [2 ... 3] = 2,
-    [4 ... 7] = 4,
-    [8 ... 15] = 8,
-    [16 ... 31] = 16,
-    [32 ... 63] = 32,
-    [64 ... 127] = 64,
-    [128 ... 255] = 128
+    [1 ... 2] = 1,      // 1–2   -> bucket 1  (merge 1 and 2)
+    [3 ... 7] = 2,      // 3–7   -> bucket 2  (merge 3–7 into one bucket)
+    [8 ... 15] = 4,     // 8–15  -> bucket 4
+    [16 ... 31] = 8,    // 16–31 -> bucket 8
+    [32 ... 63] = 16,   // 32–63 -> bucket 16
+    [64 ... 127] = 32,  // 64–127 -> bucket 32
+    [128 ... 191] = 64, // 128–191 -> bucket 64  (split high range)
+    [192 ... 255] = 128 // 192–255 -> bucket 128 (new top bucket)
+};
+#else
+const u8 count_class_lookup8[256] = {
+    [0] = 0,
+    [1 ... 3]   = 1,   // 1–3   -> bucket 1  (merged: 1,2,3 together)
+    [4 ... 15]  = 2,   // 4–15  -> bucket 2  (merged: 4 through 15)
+    [16 ... 31] = 4,   // 16–31 -> bucket 4
+    [32 ... 63] = 8,   // 32–63 -> bucket 8
+    [64 ... 95] = 16,  // 64–95 -> bucket 16 (split former 64–127)
+    [96 ... 127] = 32, // 96–127 -> bucket 32
+    [128 ... 191] = 64, // 128–191 -> bucket 64 (split former 128–255)
+    [192 ... 255] = 128 // 192–255 -> bucket 128
+};
 #endif
 
 };
