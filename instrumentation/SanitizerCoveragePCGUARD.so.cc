@@ -1458,7 +1458,7 @@ bool ModuleSanitizerCoverageAFL::InjectCoverage(
           Value *GuardPtr2 =
               createGuardPointer(IRB, cnt_cov + special + local_selects++ +
                                           AllBlocks.size() - skip_blocks);
-          continue;
+          //continue;
           result = IRB.CreateSelect(res, GuardPtr1, GuardPtr2);
 
           auto        *RES = llvm::cast<llvm::Instruction>(result);
