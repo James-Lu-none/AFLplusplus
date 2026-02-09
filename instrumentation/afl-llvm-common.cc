@@ -713,8 +713,9 @@ bool isAflCovInterestingInstruction(Instruction &I) {
 
   switch (I.getOpcode()) {
 
+#if (VAR & 1) == 1
     case Instruction::ICmp:
-    case Instruction::FCmp: {
+    {
 
       const Value *Cond = &I;
       Type        *Ty = Cond->getType();
@@ -728,13 +729,33 @@ bool isAflCovInterestingInstruction(Instruction &I) {
       return true;
 
     }
+#endif
+#if (VAR & 2) == 2
+    case Instruction::FCmp:
+    {
 
+      const Value *Cond = &I;
+      Type        *Ty = Cond->getType();
+      if (Ty->isIntegerTy(1) ||
+          (Ty->isVectorTy() && Ty->getScalarType()->isIntegerTy(1))) {
+
+        if (isDecisionUse(Cond)) return false;
+
+      }
+
+      return true;
+
+    }
+#endif
+#if (VAR & 4) == 4
     case Instruction::Select:
       return true;
-
+#endif
+#if (VAR & 8) == 8
     case Instruction::AtomicCmpXchg:
       return true;
-
+#endif
+#if (VAR & 16) == 16
     case Instruction::AtomicRMW: {
 
       auto *RMW = dyn_cast<AtomicRMWInst>(&I);
@@ -746,6 +767,7 @@ bool isAflCovInterestingInstruction(Instruction &I) {
              Op == AtomicRMWInst::UMin || Op == AtomicRMWInst::UMax;
 
     }
+#endif
 
     default:
       return false;

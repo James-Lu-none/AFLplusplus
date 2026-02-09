@@ -295,6 +295,10 @@ ifdef IOS_SDK_PATH
   override CFLAGS_SAFE += -isysroot $(IOS_SDK_PATH)
 endif
 
+ifdef VAR
+	override CFLAGS += -DVAR=$(VAR)
+endif
+
 ifdef CODE_COVERAGE
   override CFLAGS_SAFE += -D__AFL_CODE_COVERAGE=1
   override LDFLAGS += -ldl
