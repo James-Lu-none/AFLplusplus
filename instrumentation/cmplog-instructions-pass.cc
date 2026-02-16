@@ -186,6 +186,7 @@ bool CmpLogInstructions::hookInstrs(Module &M, LoopInfoCallback LICallback) {
                                             Int64Ty, Int64Ty, Int8Ty);
   FunctionCallee cmplogHookIns8 = c8;
 
+#if INTPTR_MAX != INT32_MAX
   FunctionCallee c16 = M.getOrInsertFunction("__cmplog_ins_hook16", VoidTy,
                                              Int128Ty, Int128Ty, Int8Ty);
   FunctionCallee cmplogHookIns16 = c16;
@@ -193,6 +194,7 @@ bool CmpLogInstructions::hookInstrs(Module &M, LoopInfoCallback LICallback) {
   FunctionCallee cN = M.getOrInsertFunction("__cmplog_ins_hookN", VoidTy,
                                             Int128Ty, Int128Ty, Int8Ty, Int8Ty);
   FunctionCallee cmplogHookInsN = cN;
+#endif
 
   GlobalVariable *AFLCmplogPtr = M.getNamedGlobal("__afl_cmp_map");
 
@@ -418,9 +420,12 @@ bool CmpLogInstructions::hookInstrs(Module &M, LoopInfoCallback LICallback) {
           cast_size = 64;
           break;
         default:
+          // 65-128 bit values are handled via 128-bit hooks.
           cast_size = 128;
 
       }
+
+      bool use_hookN = cast_size == 128 && cast_size != max_size;
 
       // XXX FIXME BUG TODO
       if (is_fp && vector_cnt) { continue; }
@@ -521,7 +526,7 @@ bool CmpLogInstructions::hookInstrs(Module &M, LoopInfoCallback LICallback) {
           ConstantInt *attribute = ConstantInt::get(Int8Ty, attr);
           args.push_back(attribute);
 
-          if (cast_size != max_size) {
+          if (use_hookN) {
 
             ConstantInt *bitsize = ConstantInt::get(Int8Ty, (max_size / 8) - 1);
             args.push_back(bitsize);
@@ -546,15 +551,18 @@ bool CmpLogInstructions::hookInstrs(Module &M, LoopInfoCallback LICallback) {
               IRB.CreateCall(cmplogHookIns8, args);
               break;
             case 128:
-              if (max_size == 128) {
-
-                IRB.CreateCall(cmplogHookIns16, args);
-
-              } else {
+#if INTPTR_MAX != INT32_MAX
+              if (use_hookN) {
 
                 IRB.CreateCall(cmplogHookInsN, args);
 
+              } else {
+
+                IRB.CreateCall(cmplogHookIns16, args);
+
               }
+
+#endif
 
               break;
 

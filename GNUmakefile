@@ -369,9 +369,18 @@ man:    $(MANPAGES)
 test:	tests
 
 .PHONY: tests
+ifdef ARCH
+tests:
+	@command -v docker >/dev/null 2>&1 || { echo "[-] Error: docker is required for ARCH testing"; exit 1; }
+	@echo "[*] Running tests in $(ARCH) Docker container via QEMU..."
+	@echo "[*] Output logged to test/test-$(ARCH).log"
+	@docker run --rm --privileged multiarch/qemu-user-static --reset -p yes > /dev/null 2>&1 || true
+	docker build --progress=plain --platform linux/$(ARCH) -f test/Dockerfile.qemu -t aflpp-test-$(ARCH) . 2>&1 | tee test/test-$(ARCH).log
+else
 tests:	source-only binary-only
 	@cd test ; ./test-all.sh
 	@rm -f test/errors
+endif
 
 .PHONY: performance-tests
 performance-tests:	performance-test
