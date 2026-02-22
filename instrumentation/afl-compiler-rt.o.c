@@ -286,18 +286,6 @@ __thread u32 __afl_prev_ctx;
 struct cmp_map *__afl_cmp_map;
 struct cmp_map *__afl_cmp_map_backup;
 
-struct distance_entry {
-  uint32_t target_id;
-  uint32_t min_distance;
-  uint8_t  seed_content[MAX_SEED_SIZE];
-  uint32_t seed_len;
-  uint32_t is_active;
-};
-
-struct shared_dist_kv_store {
-  struct distance_entry entries[MAX_TARGETS];
-};
-
 struct shared_dist_kv_store *__afl_dist_shm;
 
 static u8 __afl_cmplog_max_len = 32;  // 16-32
