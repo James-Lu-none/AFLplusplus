@@ -60,7 +60,6 @@ typedef struct sharedmem {
 
   int                          dist_mode;
   struct shared_dist_kv_store *dist_kv_map;
-  struct cmp_map *cmp_map;
 
 } sharedmem_t;
 
