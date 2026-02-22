@@ -653,7 +653,6 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_state_t *afl = calloc(1, sizeof(afl_state_t));
   if (!afl) { FATAL("Could not create afl state"); }
-  afl->shm.dist_mode = 1;
 
   if (get_afl_env("AFL_DEBUG")) { debug = afl->debug = 1; }
 
