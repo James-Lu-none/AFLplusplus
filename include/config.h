@@ -543,6 +543,19 @@ We add 4 byte for one u32 length field. */
 #define MAX_TARGETS 64
 #define MAX_SEED_SIZE 512
 
+#include "types.h"
+struct distance_entry {
+  u32 target_id;
+  u32 min_distance;
+  u8  seed_content[MAX_SEED_SIZE];
+  u32 seed_len;
+  u32 is_active;
+};
+
+struct shared_dist_kv_store {
+  struct distance_entry entries[MAX_TARGETS];
+};
+
 #define DIST_SHM_ENV_VAR "__AFL_DIST_KV_SHM_ID"
 
 /* CPU Affinity lockfile env var */
