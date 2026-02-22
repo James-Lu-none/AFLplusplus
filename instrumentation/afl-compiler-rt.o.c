@@ -287,7 +287,7 @@ struct cmp_map *__afl_cmp_map;
 struct cmp_map *__afl_cmp_map_backup;
 
 struct distance_entry {
-  uint32_t target_bb_id;
+  uint32_t target_id;
   uint32_t min_distance;
   uint8_t  seed_content[MAX_SEED_SIZE];
   uint32_t seed_len;
@@ -3762,7 +3762,7 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
 
     struct distance_entry *entry = &__afl_dist_shm->entries[id];
     if (entry->is_active == 0 || dist < entry->min_distance) {
-      entry->target_bb_id = id;
+      entry->target_id = id;
       entry->min_distance = dist;
       entry->is_active = 1;
       // 直接從正在運行的程序參數獲取檔名
