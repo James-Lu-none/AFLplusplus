@@ -2225,38 +2225,42 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     // 檢查此 BB 是否在距離地圖中
     auto it = BBToTargetsMap.find(&BB);
     if (it != BBToTargetsMap.end() && !it->second.empty()) {
-      auto    &TargetList = it->second;
-      uint32_t num_targets = TargetList.size();
+      BasicBlock::iterator IP = BB.getFirstInsertionPt();
+      if (IP != BB.end()) { // insure the instrumentation point is valid
+        IRBuilder<> IRB(&*IP);
+        auto    &TargetList = it->second;
+        uint32_t num_targets = TargetList.size();
 
-      // 建立一個常數陣列包含 [ID0, Dist0, ID1, Dist1, ...]
-      std::vector<Constant *> ArrayElems;
-      for (auto &p : TargetList) {
-        std::string              bbName;
-        llvm::raw_string_ostream rso(bbName);
-        BB.printAsOperand(rso, false);
-        if (Instruction *I = BB.getFirstNonPHI()) {
-          if (DILocation *Loc = I->getDebugLoc()) {
-            fprintf(stderr,
-                    "DEBUG: Instrumenting BB %s:%d in BB %s with target ID %u "
-                    "and distance %u\n",
-                    Loc->getFilename().str().c_str(), Loc->getLine(),
-                    bbName.c_str(), p.first, p.second);
+        // 建立一個常數陣列包含 [ID0, Dist0, ID1, Dist1, ...]
+        std::vector<Constant *> ArrayElems;
+        for (auto &p : TargetList) {
+          std::string              bbName;
+          llvm::raw_string_ostream rso(bbName);
+          BB.printAsOperand(rso, false);
+          if (Instruction *I = BB.getFirstNonPHI()) {
+            if (DILocation *Loc = I->getDebugLoc()) {
+              fprintf(stderr,
+                      "DEBUG: Instrumenting BB %s:%d in BB %s with target ID %u "
+                      "and distance %u\n",
+                      Loc->getFilename().str().c_str(), Loc->getLine(),
+                      bbName.c_str(), p.first, p.second);
+            }
           }
+          ArrayElems.push_back(ConstantInt::get(Int32Ty, p.first));   // target ID
+          ArrayElems.push_back(ConstantInt::get(Int32Ty, p.second));  // Distance
         }
-        ArrayElems.push_back(ConstantInt::get(Int32Ty, p.first));   // target ID
-        ArrayElems.push_back(ConstantInt::get(Int32Ty, p.second));  // Distance
+
+        ArrayType      *ArrTy = ArrayType::get(Int32Ty, num_targets * 2);
+        GlobalVariable *GDistArray = new GlobalVariable(
+            *CurModule, ArrTy, true, GlobalValue::InternalLinkage,
+            ConstantArray::get(ArrTy, ArrayElems), ".afl_target_dists");
+
+        Value         *ArrayPtr = IRB.CreatePointerCast(GDistArray, PtrTy);
+        FunctionCallee ReportBatchFunc = CurModule->getOrInsertFunction(
+            "__afl_report_target_batch", Type::getVoidTy(*C), Int32Ty, PtrTy);
+        IRB.CreateCall(ReportBatchFunc,
+                      {ConstantInt::get(Int32Ty, num_targets), ArrayPtr});
       }
-
-      ArrayType      *ArrTy = ArrayType::get(Int32Ty, num_targets * 2);
-      GlobalVariable *GDistArray = new GlobalVariable(
-          *CurModule, ArrTy, true, GlobalValue::InternalLinkage,
-          ConstantArray::get(ArrTy, ArrayElems), ".afl_target_dists");
-
-      Value         *ArrayPtr = IRB.CreatePointerCast(GDistArray, PtrTy);
-      FunctionCallee ReportBatchFunc = CurModule->getOrInsertFunction(
-          "__afl_report_target_batch", Type::getVoidTy(*C), Int32Ty, PtrTy);
-      IRB.CreateCall(ReportBatchFunc,
-                     {ConstantInt::get(Int32Ty, num_targets), ArrayPtr});
     }
 
     if (!instrument_ctx)
