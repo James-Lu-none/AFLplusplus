@@ -131,6 +131,7 @@ void afl_shm_deinit(sharedmem_t *shm) {
 #else
   shmctl(shm->shm_id, IPC_RMID, NULL);
   if (shm->cmplog_mode) { shmctl(shm->cmplog_shm_id, IPC_RMID, NULL); }
+  if (shm->dist_mode) { shmctl(shm->dist_shm_id, IPC_RMID, NULL); }
 #endif
 
   shm->map = NULL;
@@ -407,6 +408,23 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
     }
 
+  }
+
+  // add dist shm setup
+  if (shm->dist_mode) {
+    shm->dist_shm_id = shmget(IPC_PRIVATE, sizeof(struct shared_dist_kv_store),
+                              IPC_CREAT | IPC_EXCL | permission);
+
+    if (shm->dist_shm_id < 0) { PFATAL("shmget() for dist_kv failed"); }
+
+    if (!non_instrumented_mode) {
+      u8 *shm_str = alloc_printf("%d", shm->dist_shm_id);
+      setenv("__AFL_DIST_KV_SHM_ID", shm_str, 1);
+      ck_free(shm_str);
+    }
+
+    shm->dist_kv_map = shmat(shm->dist_shm_id, NULL, 0);
+    if (shm->dist_kv_map == (void *)-1) PFATAL("shmat() for dist_kv failed");
   }
 
 #endif
