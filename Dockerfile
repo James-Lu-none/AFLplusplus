@@ -29,7 +29,7 @@ ENV NO_ARCH_OPT=1
 ENV IS_DOCKER=1
 
 RUN apt-get update && apt-get full-upgrade -y && \
-    apt-get install -y --no-install-recommends wget ca-certificates apt-utils && \
+    apt-get install -y --no-install-recommends tmux wget ca-certificates apt-utils && \
     rm -rf /var/lib/apt/lists/*
 
 #RUN echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg.key] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${LLVM_VERSION} main" > /etc/apt/sources.list.d/llvm.list && \
