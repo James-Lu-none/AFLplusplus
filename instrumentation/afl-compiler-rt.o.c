@@ -969,6 +969,41 @@ static void __afl_map_shm(void) {
 
   }
 
+  /* ================== My SHM setup. =================== */
+
+  char *dist_shm_id_str = getenv("__AFL_DIST_KV_SHM_ID");
+  if (__afl_debug) {
+    fprintf(stderr, "DEBUG: dist_kv id_str %s\n",
+            dist_shm_id_str ? dist_shm_id_str : "<null>");
+  }
+
+  if (dist_shm_id_str) {
+#ifdef USEMMAP
+    // POSIX SHM (檔案路徑模式)
+    int dist_shm_fd = shm_open(dist_shm_id_str, O_RDWR, DEFAULT_PERMISSION);
+    if (dist_shm_fd != -1) {
+      __afl_dist_shm = (struct shared_dist_kv_store *)mmap(
+          0, sizeof(struct shared_dist_kv_store), PROT_READ | PROT_WRITE,
+          MAP_SHARED, dist_shm_fd, 0);
+      close(dist_shm_fd);
+    }
+#else
+    // System V SHM (ID 模式)
+    u32 dist_shm_id = atoi(dist_shm_id_str);
+    __afl_dist_shm = (struct shared_dist_kv_store *)shmat(dist_shm_id, NULL, 0);
+#endif
+
+    if (!__afl_dist_shm || __afl_dist_shm == (void *)-1) {
+      perror("shmat for dist_kv");
+      __afl_dist_shm = NULL;
+    } else if (__afl_debug) {
+      fprintf(stderr, "DEBUG: successfully mapped dist_kv shm at %p\n",
+              __afl_dist_shm);
+      for (u32 i = 0; i < MAX_TARGETS; i++) {
+        __afl_dist_shm->entries[i].min_distance = UINT32_MAX;
+      }
+    }
+  }
 }
 
 /* unmap SHM. */
@@ -1040,6 +1075,17 @@ static void __afl_unmap_shm(void) {
   }
 
   __afl_already_initialized_shm = 0;
+
+  /* ================== My SHM unmap. =================== */
+
+  if (__afl_dist_shm) {
+#ifdef USEMMAP
+    munmap((void *)__afl_dist_shm, sizeof(struct shared_dist_kv_store));
+#else
+    shmdt((void *)__afl_dist_shm);
+#endif
+    __afl_dist_shm = NULL;
+  }
 
 }
 
@@ -3686,3 +3732,24 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
 
 }
 
+void __afl_report_target_hit(uint32_t id, uint32_t dist) {
+  if (!__afl_dist_shm || id >= MAX_TARGETS) return;
+
+  struct distance_entry *entry = &__afl_dist_shm->entries[id];
+
+  if (entry->is_active == 0 || dist < entry->min_distance) {
+    entry->target_bb_id = id;
+    entry->min_distance = dist;
+    entry->is_active = 1;
+
+    // 直接從正在運行的程序參數獲取檔名
+    // 在 Linux 中，/proc/self/cmdline 包含啟動參數
+    // 或者更簡單地，如果你知道 AFL++ 總是把 seed 放在固定位置 (如 .cur_input)
+    int fd = open(".cur_input", O_RDONLY);
+    if (fd != -1) {
+      // 將 seed 內容直接讀入 shm (假設你把 top_seed 改大一點)
+      entry->seed_len = read(fd, entry->seed_content, 512);
+      close(fd);
+    }
+  }
+}
