@@ -425,6 +425,10 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
     shm->dist_kv_map = shmat(shm->dist_shm_id, NULL, 0);
     if (shm->dist_kv_map == (void *)-1) PFATAL("shmat() for dist_kv failed");
+    memset(shm->dist_kv_map, 0, sizeof(struct shared_dist_kv_store));
+    for (uint32_t i = 0; i < MAX_TARGETS; i++) {
+      shm->dist_kv_map->entries[i].min_distance = UINT32_MAX;
+    }
   }
 
 #endif
