@@ -8,6 +8,9 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include <map>
+#include <deque>
+
 #include <list>
 #include <string>
 #include <fstream>
@@ -260,6 +263,9 @@ class ModuleSanitizerCoverageLTO
   bool                             deny_exec = false;
   // AFL++ END
 
+  // my map
+  std::map<BasicBlock *, uint32_t> GlobalDistances;
+  FunctionCallee ReportHitFunc;
 };
 
 class ModuleSanitizerCoverageLTOLegacyPass : public ModulePass {
@@ -422,6 +428,86 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   Int16Ty = IRB.getInt16Ty();
   Int8Ty = IRB.getInt8Ty();
   Int1Ty = IRB.getInt1Ty();
+
+  /* ===== custom instrumentation ===== */
+  ReportHitFunc = M.getOrInsertFunction("__afl_report_target_hit", Type::getVoidTy(*C), Int32Ty, Int32Ty);
+
+  std::deque<BasicBlock *>         WorkList;
+  BasicBlock *TargetBB = nullptr;
+  uint32_t    manual_target_id = 0;
+  // first, scan for the target basic block (manually select line 30 in target.c for this example, will be replace with automatic target selection with codeql query results in the future)
+  for (auto &F : M) {
+    if (F.isDeclaration() || F.size() == 0) continue;
+    for (auto &BB : F) {
+      for (auto &Inst : BB) {
+        if (DILocation *Loc = Inst.getDebugLoc()) {
+          if (Loc->getFilename().ends_with("target.c") &&
+              Loc->getLine() == 30) {
+            TargetBB = &BB;
+            break;
+          }
+        }
+      }
+      if (TargetBB) break;
+    }
+  }
+
+  if (TargetBB) {
+    fprintf(stderr, "[LTO-BFS] Found Target! Starting Global Distance Calculation...\n");
+    GlobalDistances[TargetBB] = 0;
+    WorkList.push_back(TargetBB);
+
+    // BFS to calculate distance from every reachable basic block to the target basic block, and store in GlobalDistances
+    while (!WorkList.empty()) {
+      BasicBlock *Curr = WorkList.front();
+      WorkList.pop_front();
+      uint32_t d = GlobalDistances[Curr];
+
+      // case A: find all predecessor basic blocks in the same function
+      for (BasicBlock *Pred : predecessors(Curr)) {
+        if (GlobalDistances.find(Pred) == GlobalDistances.end()) {
+          GlobalDistances[Pred] = d + 1;
+          WorkList.push_back(Pred);
+        }
+      }
+
+      // case B: if Curr is an entry block, find all call sites that can lead to this function
+      Function *F = Curr->getParent();
+      if (Curr == &F->getEntryBlock()) {
+        for (User *U : F->users()) {
+          if (CallBase *CB = dyn_cast<CallBase>(U)) {
+            // 只有當這個 User 是在一個 Basic Block 內的呼叫指令時，才有可能是呼叫這個函式的 call site，其他像是全域變數初始化裡面呼叫函式的情況就不考慮了
+            BasicBlock *CallerBB = CB->getParent();
+            if (GlobalDistances.find(CallerBB) == GlobalDistances.end()) {
+              GlobalDistances[CallerBB] = d + 1;
+              WorkList.push_back(CallerBB);
+            }
+          }
+        }
+      }
+    }
+    fprintf(stderr, "[LTO-BFS] Distance Calculation Complete. Total BBs mapped: %zu\n", GlobalDistances.size());
+  }
+  // 不在這邊做 instrumentation，等到真正跑到 InjectCoverage 的時候再根據 GlobalDistances 決定要不要插入 ReportHitFunc，這樣就不會對不可達的 basic block 造成額外的 overhead
+  // for (auto &F : M) {
+  //   for (auto &BB : F) {
+  //     // 如果這個 BB 根本到不了目標（BBDistances 沒紀錄），就跳過或設為極大值
+  //     if (GlobalDistances.find(&BB) == GlobalDistances.end()) continue;
+
+  //     uint32_t dist = GlobalDistances[&BB];
+
+  //     // 在 BB 的開頭插入 ReportHitFunc
+  //     IRBuilder<> Builder(&*BB.getFirstInsertionPt());
+  //     Builder.CreateCall(ReportHitFunc,
+  //                       {ConstantInt::get(Int32Ty, manual_target_id),
+  //                         ConstantInt::get(Int32Ty, dist)});
+
+  //     if (dist == 0) {
+  //       errs() << "[Target] Instrumented Target BB with dist 0\n";
+  //     }
+  //   }
+  // }
+
 
   /* AFL++ START */
   char        *ptr;
@@ -2279,6 +2365,14 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
 
   IRBuilder<> IRB(&*IP);
+
+  // 檢查此 BB 是否在距離地圖中
+  auto it = GlobalDistances.find(&BB);
+  if (it != GlobalDistances.end()) {
+    uint32_t dist = it->second;
+    IRB.CreateCall(ReportHitFunc, {ConstantInt::get(Int32Ty, 0), ConstantInt::get(Int32Ty, dist)});
+  }
+
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
