@@ -430,8 +430,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   /* ===== custom instrumentation ===== */
   std::deque<BasicBlock *>         WorkList;
-  BasicBlock *TargetBB = nullptr;
-  uint32_t    manual_target_id = 0;
   // first, scan for the target basic block (manually select line 30 in target.c for this example, will be replace with automatic target selection with codeql query results in the future)
 
   struct TargetInfo {
