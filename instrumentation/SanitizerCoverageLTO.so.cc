@@ -2370,6 +2370,8 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   auto it = GlobalDistances.find(&BB);
   if (it != GlobalDistances.end()) {
     uint32_t dist = it->second;
+    fprintf(stderr, "DEBUG: Function %s, BB %s is at distance %u\n", F.getName().str().c_str(),
+           BB.getName().str().c_str(), dist);
     IRB.CreateCall(ReportHitFunc, {ConstantInt::get(Int32Ty, 0), ConstantInt::get(Int32Ty, dist)});
   }
 
