@@ -543,13 +543,13 @@ We add 4 byte for one u32 length field. */
 #define MAX_TARGETS 64
 #define MAX_SEED_SIZE 512
 
-#include "types.h"
+#include <stdint.h>
 struct distance_entry {
-  u32 target_id;
-  u32 min_distance;
-  u8  seed_content[MAX_SEED_SIZE];
-  u32 seed_len;
-  u32 is_active;
+  uint32_t target_id;
+  uint32_t min_distance;
+  uint8_t  seed_content[MAX_SEED_SIZE];
+  uint32_t seed_len;
+  uint32_t is_active;
 };
 
 struct shared_dist_kv_store {
