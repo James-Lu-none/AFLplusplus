@@ -597,7 +597,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     }
 
     SAYF(cCYA "afl-llvm-lto" VERSION cRST
-              "%s by Marc \"vanHauser\" Heuse <mh@mh-sec.de>\n",
+              "%s by James Lu <jameslu.ii14@nycu.edu.tw>\n",
          buf);
 
   } else {

@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
   if (isatty(2) && !getenv("AFL_QUIET") && !getenv("AFL_DEBUG")) {
 
     SAYF(cCYA "afl-ld-to" VERSION cRST
-              " by Marc \"vanHauser\" Heuse <mh@mh-sec.de>\n");
+              " by James Lu <jameslu.ii14@nycu.edu.tw>\n");
 
   } else
 

@@ -108,7 +108,7 @@ PreservedAnalyses AFLcheckIfInstrument::run(Module                &M,
   if ((isatty(2) && !getenv("AFL_QUIET")) || getenv("AFL_DEBUG") != NULL) {
 
     SAYF(cCYA "afl-llvm-lto-instrumentlist" VERSION cRST
-              " by Marc \"vanHauser\" Heuse <mh@mh-sec.de>\n");
+              " by James Lu <jameslu.ii14@nycu.edu.tw>\n");
 
   } else if (getenv("AFL_QUIET"))
 

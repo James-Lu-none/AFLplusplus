@@ -164,7 +164,7 @@ PreservedAnalyses AFLdict2filePass::run(Module &M, ModuleAnalysisManager &MAM) {
   if ((isatty(2) && !getenv("AFL_QUIET")) || debug) {
 
     SAYF(cCYA "afl-llvm-dict2file" VERSION cRST
-              " by Marc \"vanHauser\" Heuse <mh@mh-sec.de>\n");
+              " by James Lu <jameslu.ii14@nycu.edu.tw>\n");
 
   } else {
 
