@@ -46,6 +46,7 @@ typedef struct sharedmem {
 #else
   s32 shm_id;                          /* ID of the SHM region              */
   s32 cmplog_shm_id;
+  s32 dist_shm_id;
 #endif
 
   u8 *map;                                          /* shared memory region */
@@ -55,6 +56,10 @@ typedef struct sharedmem {
   int             cmplog_mode;
   int             sanfuzz_mode;
   int             shmemfuzz_mode;
+  struct cmp_map *cmp_map;
+
+  int                          dist_mode;
+  struct shared_dist_kv_store *dist_kv_map;
   struct cmp_map *cmp_map;
 
 } sharedmem_t;
