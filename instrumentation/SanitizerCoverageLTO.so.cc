@@ -2219,6 +2219,25 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
+    /* cfg generation */
+
+    std::string bbName;
+    {
+      llvm::raw_string_ostream rso(bbName);
+      BB.printAsOperand(rso, false);
+    }
+    std::ofstream edgeFile("cfg_edges.txt", std::ios::app);
+
+    if (edgeFile.is_open()) {
+      for (BasicBlock *Succ : successors(&BB)) {
+        std::string              succName;
+        llvm::raw_string_ostream rso_succ(succName);
+        Succ->printAsOperand(rso_succ, false);
+        edgeFile << bbName << ", " << succName << "\n";
+      }
+      edgeFile.close();
+    }
+    /* instrument __afl_report_target_batch */
     // 在這裡插樁可以避免被shouldInstrumentBlock擋掉
     // 檢查此 BB 是否在距離地圖中
     auto it = BBToTargetsMap.find(&BB);
