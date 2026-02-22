@@ -2237,20 +2237,28 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
           std::string              bbName;
           llvm::raw_string_ostream rso(bbName);
           BB.printAsOperand(rso, false);
+          uint32_t bbNum = 0;
+          if (!bbName.empty() && bbName[0] == '%') {
+            llvm::StringRef idPart(bbName.c_str() + 1);
+            if (idPart.getAsInteger(10, bbNum)) {
+              bbNum = (uint32_t)llvm::hash_value(idPart);
+            }
+          }
           if (Instruction *I = BB.getFirstNonPHI()) {
             if (DILocation *Loc = I->getDebugLoc()) {
               fprintf(stderr,
-                      "DEBUG: Instrumenting BB %s:%d in BB %s with target ID %u "
+                      "DEBUG: Instrumenting BB %s at %s:%d with target ID %u "
                       "and distance %u\n",
-                      Loc->getFilename().str().c_str(), Loc->getLine(),
-                      bbName.c_str(), p.first, p.second);
+                      bbName.c_str(), Loc->getFilename().str().c_str(), Loc->getLine(),
+                      p.first, p.second);
             }
           }
           ArrayElems.push_back(ConstantInt::get(Int32Ty, p.first));   // target ID
           ArrayElems.push_back(ConstantInt::get(Int32Ty, p.second));  // Distance
+          ArrayElems.push_back(ConstantInt::get(Int32Ty, bbNum));     // bb index
         }
 
-        ArrayType      *ArrTy = ArrayType::get(Int32Ty, num_targets * 2);
+        ArrayType      *ArrTy = ArrayType::get(Int32Ty, num_targets * 3);
         GlobalVariable *GDistArray = new GlobalVariable(
             *CurModule, ArrTy, true, GlobalValue::InternalLinkage,
             ConstantArray::get(ArrTy, ArrayElems), ".afl_target_dists");
