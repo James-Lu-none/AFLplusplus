@@ -3745,19 +3745,24 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
   if (!__afl_dist_shm) return;
 
   for (uint32_t i = 0; i < count; i++) {
-    uint32_t id = data[i * 2];
-    uint32_t dist = data[i * 2 + 1];
+    uint32_t id = data[i * 3];
+    uint32_t dist = data[i * 3 + 1];
+    uint32_t last_bb_id = data[i * 3 + 2];
 
     struct distance_entry *entry = &__afl_dist_shm->entries[id];
-    if (entry->is_active == 0 || dist < entry->min_distance) {
+    if (dist < entry->min_distance) {
       entry->target_id = id;
       entry->min_distance = dist;
-      entry->is_active = 1;
-      // 直接從正在運行的程序參數獲取檔名
-      int fd = open(".cur_input", O_RDONLY);
-      if (fd != -1) {
-        entry->seed_len = read(fd, entry->seed_content, 512);
+      entry->last_bb_id = last_bb_id;
+      entry->is_active += 1;
+     
+      int fd = open("out/main/.cur_input", O_RDONLY);
+      if (fd >= 0) {
+        ssize_t n = read(fd, entry->seed_content, 512);
+        entry->seed_len = (n > 0) ? (uint32_t)n : 0;
         close(fd);
+      } else {
+        entry->is_active = 0;
       }
     }
   }

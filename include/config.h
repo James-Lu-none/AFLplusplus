@@ -547,6 +547,7 @@ We add 4 byte for one u32 length field. */
 struct distance_entry {
   uint32_t target_id;
   uint32_t min_distance;
+  uint32_t last_bb_id;
   uint32_t seed_len;
   uint32_t is_active;
   uint8_t  seed_content[MAX_SEED_SIZE];
