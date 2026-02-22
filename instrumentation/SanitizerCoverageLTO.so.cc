@@ -264,8 +264,7 @@ class ModuleSanitizerCoverageLTO
   // AFL++ END
 
   // my map
-  std::map<BasicBlock *, uint32_t> GlobalDistances;
-  FunctionCallee ReportHitFunc;
+  std::map<BasicBlock *, std::vector<std::pair<uint32_t, uint32_t>>>BBToTargetsMap;
 };
 
 class ModuleSanitizerCoverageLTOLegacyPass : public ModulePass {
@@ -430,43 +429,61 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   Int1Ty = IRB.getInt1Ty();
 
   /* ===== custom instrumentation ===== */
-  ReportHitFunc = M.getOrInsertFunction("__afl_report_target_hit", Type::getVoidTy(*C), Int32Ty, Int32Ty);
-
   std::deque<BasicBlock *>         WorkList;
   BasicBlock *TargetBB = nullptr;
   uint32_t    manual_target_id = 0;
   // first, scan for the target basic block (manually select line 30 in target.c for this example, will be replace with automatic target selection with codeql query results in the future)
-  for (auto &F : M) {
-    if (F.isDeclaration() || F.size() == 0) continue;
-    for (auto &BB : F) {
-      for (auto &Inst : BB) {
-        if (DILocation *Loc = Inst.getDebugLoc()) {
-          if (Loc->getFilename().ends_with("target.c") &&
-              Loc->getLine() == 30) {
-            TargetBB = &BB;
-            break;
+
+  struct TargetInfo {
+    std::string filename;
+    uint32_t    line;
+    uint32_t    id;
+  };
+  std::vector<TargetInfo> ManualTargets = {
+      {"target.c", 30, 0}, 
+      {"target.c", 22, 1}
+  };
+  for (auto &T : ManualTargets) {
+    BasicBlock *TargetBB = nullptr;
+    // 1. 尋找該目標的 BB
+    for (auto &F : M) {
+      if (F.isDeclaration() || F.size() == 0) continue;
+      for (auto &BB : F) {
+        for (auto &Inst : BB) {
+          if (DILocation *Loc = Inst.getDebugLoc()) {
+            if (Loc->getFilename().ends_with(T.filename) &&
+                Loc->getLine() == T.line) {
+              TargetBB = &BB;
+              break;
+            }
           }
         }
+        if (TargetBB) break;
       }
-      if (TargetBB) break;
     }
-  }
 
-  if (TargetBB) {
+    if (!TargetBB) continue;
+
     fprintf(stderr, "[LTO-BFS] Found Target! Starting Global Distance Calculation...\n");
-    GlobalDistances[TargetBB] = 0;
+    std::deque<BasicBlock *>         WorkList;
+    std::map<BasicBlock *, uint32_t> Distances;
+    Distances[TargetBB] = 0;
+    
     WorkList.push_back(TargetBB);
 
     // BFS to calculate distance from every reachable basic block to the target basic block, and store in GlobalDistances
     while (!WorkList.empty()) {
       BasicBlock *Curr = WorkList.front();
       WorkList.pop_front();
-      uint32_t d = GlobalDistances[Curr];
+      uint32_t d = Distances[Curr];
+
+      // 紀錄到全域地圖
+      BBToTargetsMap[Curr].push_back({T.id, d});
 
       // case A: find all predecessor basic blocks in the same function
       for (BasicBlock *Pred : predecessors(Curr)) {
-        if (GlobalDistances.find(Pred) == GlobalDistances.end()) {
-          GlobalDistances[Pred] = d + 1;
+        if (Distances.find(Pred) == Distances.end()) {
+          Distances[Pred] = d + 1;
           WorkList.push_back(Pred);
         }
       }
@@ -478,15 +495,15 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
           if (CallBase *CB = dyn_cast<CallBase>(U)) {
             // 只有當這個 User 是在一個 Basic Block 內的呼叫指令時，才有可能是呼叫這個函式的 call site，其他像是全域變數初始化裡面呼叫函式的情況就不考慮了
             BasicBlock *CallerBB = CB->getParent();
-            if (GlobalDistances.find(CallerBB) == GlobalDistances.end()) {
-              GlobalDistances[CallerBB] = d + 1;
+            if (Distances.find(CallerBB) == Distances.end()) {
+              Distances[CallerBB] = d + 1;
               WorkList.push_back(CallerBB);
             }
           }
         }
       }
     }
-    fprintf(stderr, "[LTO-BFS] Distance Calculation Complete. Total BBs mapped: %zu\n", GlobalDistances.size());
+    fprintf(stderr, "[LTO-BFS] Distance Calculation Complete. Total BBs mapped: %zu\n", BBToTargetsMap.size());
   }
   // 不在這邊做 instrumentation，等到真正跑到 InjectCoverage 的時候再根據 GlobalDistances 決定要不要插入 ReportHitFunc，這樣就不會對不可達的 basic block 造成額外的 overhead
   // for (auto &F : M) {
@@ -2367,12 +2384,28 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   IRBuilder<> IRB(&*IP);
 
   // 檢查此 BB 是否在距離地圖中
-  auto it = GlobalDistances.find(&BB);
-  if (it != GlobalDistances.end()) {
-    uint32_t dist = it->second;
-    fprintf(stderr, "DEBUG: Function %s, BB %s is at distance %u\n", F.getName().str().c_str(),
-           BB.getName().str().c_str(), dist);
-    IRB.CreateCall(ReportHitFunc, {ConstantInt::get(Int32Ty, 0), ConstantInt::get(Int32Ty, dist)});
+  auto it = BBToTargetsMap.find(&BB);
+  if (it != BBToTargetsMap.end() && !it->second.empty()) {
+    auto    &TargetList = it->second;
+    uint32_t num_targets = TargetList.size();
+
+    // 建立一個常數陣列包含 [ID0, Dist0, ID1, Dist1, ...]
+    std::vector<Constant *> ArrayElems;
+    for (auto &p : TargetList) {
+      ArrayElems.push_back(ConstantInt::get(Int32Ty, p.first));   // target ID
+      ArrayElems.push_back(ConstantInt::get(Int32Ty, p.second));  // Distance
+    }
+
+    ArrayType      *ArrTy = ArrayType::get(Int32Ty, num_targets * 2);
+    GlobalVariable *GDistArray = new GlobalVariable(
+        *CurModule, ArrTy, true, GlobalValue::InternalLinkage,
+        ConstantArray::get(ArrTy, ArrayElems), ".afl_target_dists");
+
+    Value *ArrayPtr = IRB.CreatePointerCast(GDistArray, PtrTy);
+    FunctionCallee ReportBatchFunc = CurModule->getOrInsertFunction(
+        "__afl_report_target_batch", Type::getVoidTy(*C), Int32Ty, PtrTy);
+    IRB.CreateCall(ReportBatchFunc, 
+                   {ConstantInt::get(Int32Ty, num_targets), ArrayPtr});
   }
 
   if (Options.TracePC) {

@@ -3732,24 +3732,45 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
 
 }
 
-void __afl_report_target_hit(uint32_t id, uint32_t dist) {
-  if (!__afl_dist_shm || id >= MAX_TARGETS) return;
+// void __afl_report_target_hit(uint32_t id, uint32_t dist) {
+//   if (!__afl_dist_shm || id >= MAX_TARGETS) return;
 
-  struct distance_entry *entry = &__afl_dist_shm->entries[id];
+//   struct distance_entry *entry = &__afl_dist_shm->entries[id];
 
-  if (entry->is_active == 0 || dist < entry->min_distance) {
-    entry->target_bb_id = id;
-    entry->min_distance = dist;
-    entry->is_active = 1;
+//   if (entry->is_active == 0 || dist < entry->min_distance) {
+//     entry->target_bb_id = id;
+//     entry->min_distance = dist;
+//     entry->is_active = 1;
 
-    // 直接從正在運行的程序參數獲取檔名
-    // 在 Linux 中，/proc/self/cmdline 包含啟動參數
-    // 或者更簡單地，如果你知道 AFL++ 總是把 seed 放在固定位置 (如 .cur_input)
-    int fd = open(".cur_input", O_RDONLY);
-    if (fd != -1) {
-      // 將 seed 內容直接讀入 shm (假設你把 top_seed 改大一點)
-      entry->seed_len = read(fd, entry->seed_content, 512);
-      close(fd);
+//     // 直接從正在運行的程序參數獲取檔名
+//     // 在 Linux 中，/proc/self/cmdline 包含啟動參數
+//     // 或者更簡單地，如果你知道 AFL++ 總是把 seed 放在固定位置 (如 .cur_input)
+//     int fd = open(".cur_input", O_RDONLY);
+//     if (fd != -1) {
+//       entry->seed_len = read(fd, entry->seed_content, 512);
+//       close(fd);
+//     }
+//   }
+// }
+
+void __afl_report_target_batch(uint32_t count, uint32_t *data) {
+  if (!__afl_dist_shm) return;
+
+  for (uint32_t i = 0; i < count; i++) {
+    uint32_t id = data[i * 2];
+    uint32_t dist = data[i * 2 + 1];
+
+    struct distance_entry *entry = &__afl_dist_shm->entries[id];
+    if (entry->is_active == 0 || dist < entry->min_distance) {
+      entry->target_bb_id = id;
+      entry->min_distance = dist;
+      entry->is_active = 1;
+      // 直接從正在運行的程序參數獲取檔名
+      int fd = open(".cur_input", O_RDONLY);
+      if (fd != -1) {
+        entry->seed_len = read(fd, entry->seed_content, 512);
+        close(fd);
+      }
     }
   }
 }
