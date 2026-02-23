@@ -438,7 +438,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   // first, scan for the target basic block (manually select two targets for this example, will be replace with automatic target selection with codeql query results in the future)
   std::vector<TargetInfo> ManualTargets = {
-      {"target.c", 15, 0}, 
+      {"target.c", 12, 0}, 
       {"target.c", 21, 1}
   };
   for (auto &T : ManualTargets) {
