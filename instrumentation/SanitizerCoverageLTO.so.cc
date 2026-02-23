@@ -430,20 +430,20 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   /* ===== custom instrumentation ===== */
   std::deque<BasicBlock *>         WorkList;
-  // first, scan for the target basic block (manually select line 30 in target.c for this example, will be replace with automatic target selection with codeql query results in the future)
-
   struct TargetInfo {
     std::string filename;
     uint32_t    line;
     uint32_t    id;
   };
+
+  // first, scan for the target basic block (manually select two targets for this example, will be replace with automatic target selection with codeql query results in the future)
   std::vector<TargetInfo> ManualTargets = {
       {"target.c", 30, 0}, 
       {"target.c", 22, 1}
   };
   for (auto &T : ManualTargets) {
     BasicBlock *TargetBB = nullptr;
-    // 1. 尋找該目標的 BB
+    // scan through all basic blocks in the module to find the target BB.
     for (auto &F : M) {
       if (F.isDeclaration() || F.size() == 0) continue;
       for (auto &BB : F) {
@@ -475,7 +475,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       WorkList.pop_front();
       uint32_t d = Distances[Curr];
 
-      // 紀錄到全域地圖
+      // store the distance to the target for this basic block
       BBToTargetsMap[Curr].push_back({T.id, d});
 
       // case A: find all predecessor basic blocks in the same function
@@ -491,7 +491,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       if (Curr == &F->getEntryBlock()) {
         for (User *U : F->users()) {
           if (CallBase *CB = dyn_cast<CallBase>(U)) {
-            // 只有當這個 User 是在一個 Basic Block 內的呼叫指令時，才有可能是呼叫這個函式的 call site，其他像是全域變數初始化裡面呼叫函式的情況就不考慮了
             BasicBlock *CallerBB = CB->getParent();
             if (Distances.find(CallerBB) == Distances.end()) {
               Distances[CallerBB] = d + 1;
@@ -503,25 +502,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     }
     fprintf(stderr, "[LTO-BFS] Distance Calculation Complete for target %s:%d. Total BBs mapped: %zu\n", T.filename.c_str(), T.line, BBToTargetsMap.size());
   }
-  // 不在這邊做 instrumentation，等到真正跑到 InjectCoverage 的時候再根據 GlobalDistances 決定要不要插入 ReportHitFunc，這樣就不會對不可達的 basic block 造成額外的 overhead
-  // for (auto &F : M) {
-  //   for (auto &BB : F) {
-  //     // 如果這個 BB 根本到不了目標（BBDistances 沒紀錄），就跳過或設為極大值
-  //     if (GlobalDistances.find(&BB) == GlobalDistances.end()) continue;
-
-  //     uint32_t dist = GlobalDistances[&BB];
-
-  //     // 在 BB 的開頭插入 ReportHitFunc
-  //     IRBuilder<> Builder(&*BB.getFirstInsertionPt());
-  //     Builder.CreateCall(ReportHitFunc,
-  //                       {ConstantInt::get(Int32Ty, manual_target_id),
-  //                         ConstantInt::get(Int32Ty, dist)});
-
-  //     if (dist == 0) {
-  //       errs() << "[Target] Instrumented Target BB with dist 0\n";
-  //     }
-  //   }
-  // }
 
 
   /* AFL++ START */
