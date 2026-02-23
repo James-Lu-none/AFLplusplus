@@ -1,6 +1,7 @@
 import dash
 from dash import html, dcc, Input, Output, State
 import dash_cytoscape as cyto
+import subprocess
 import ctypes
 import os
 import re
@@ -27,9 +28,24 @@ libc = ctypes.CDLL("libc.so.6")
 shmat = libc.shmat
 shmat.restype = ctypes.c_void_p
 
+def get_afl_shm_id():
+    # try to find the shared memory ID from the environment variables of the running target_normal process
+    try:
+        pid_list = subprocess.check_output(["pidof", "target_normal"]).decode().split()
+        for pid in pid_list:
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env = f.read().split(b'\0')
+                for e in env:
+                    if e.startswith(b"__AFL_DIST_KV_SHM_ID="):
+                        return int(e.split(b"=")[1])
+    except Exception as e:
+        print(f"unable to find shared memory ID: {e}")
+    return None
+
 def get_shm_ptr():
-    # hardcoded shm_id because i dont know how to get it from fuzzing instance
-    shm_id = 2
+    shm_id = get_afl_shm_id()
+    if shm_id is None:
+        return None
     ptr = shmat(shm_id, None, 0)
     return None if ptr == -1 else ptr
 
@@ -164,4 +180,4 @@ def display_node_data(data, n):
     return f"No active seed stopped at BB {clicked_bb} currently."
 
 if __name__ == '__main__':
-    app.run(host='0.0 .0.0', port=8050, debug=False)
+    app.run(host='0.0.0.0', port=8050, debug=False)
