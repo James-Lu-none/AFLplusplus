@@ -1,0 +1,8 @@
+services:
+  afl:
+    container_name: my-afl-test
+    build: .
+    command: sleep infinity
+    ports:
+      - "8050:8050"
+    
