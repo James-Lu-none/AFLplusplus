@@ -16,6 +16,10 @@ MAX_SEED_SIZE = 512
 
 MAP_SIZE = 1048576 
 GRID_DIM = 1024
+
+COARSEN_FACTOR = 4
+GRID_DIM_COARSE = GRID_DIM // COARSEN_FACTOR
+
 class DistanceEntry(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
@@ -193,37 +197,37 @@ def update_live_data(n):
 
 
     # draw coverage heatmap
-    display_matrix = np.zeros(MAP_SIZE, dtype=np.uint8)
-    stats_text = "Waiting for data..."
     fig = go.Figure()
-    with map_lock:
-        display_matrix = accumulated_map.copy().reshape((GRID_DIM, GRID_DIM))
-        hit_edges = np.count_nonzero(accumulated_map)
 
-    map_matrix = display_matrix.reshape((GRID_DIM, GRID_DIM))
+    with map_lock:
+        map_1024_snapshot = accumulated_map.copy().reshape((GRID_DIM, GRID_DIM))
+        hit_edges = np.count_nonzero(map_1024_snapshot)
+        blocks = map_1024_snapshot.reshape(GRID_DIM_COARSE, COARSEN_FACTOR, GRID_DIM_COARSE, COARSEN_FACTOR)
+        map_coarse_display = blocks.max(axis=(1, 3))
+    density = (hit_edges / MAP_SIZE) * 100
+    stats_text = f"Edges Hit: {hit_edges:,} | Density: {density:.6f}%"
+    
     fig.add_trace(go.Heatmap(
-        z=map_matrix,
-        colorscale='Hot',
+        z=map_coarse_display,
+        colorscale=[
+            [0, 'rgb(0,0,0)'],
+            [0.01, 'rgb(0, 255, 127)'],
+            [1, 'rgb(255, 255, 255)']
+        ],
         zmin=0,
-        zmax=5,
+        zmax=4, 
         showscale=False,
         hoverinfo='z'
     ))
 
     fig.update_layout(
-        margin=dict(l=0, r=0, b=0, t=0),
+        title=f"Coverage Map ({GRID_DIM_COARSE}x{GRID_DIM_COARSE} View, Enhanced)",
+        margin=dict(l=0, r=0, b=0, t=30),
         xaxis={'visible': False},
         yaxis={'visible': False, 'autorange': 'reversed'},
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)'
     )
-
-    # calculate density
-    total_edges = len(display_matrix)
-    hit_edges = np.count_nonzero(display_matrix)
-    density = (hit_edges / total_edges) * 100
-    stats_text = f"Edges Hit: {hit_edges} | Density: {density:.4f}%"
-
 
     return base_style, status_elements, fig, stats_text
 
