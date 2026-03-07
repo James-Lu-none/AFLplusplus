@@ -143,6 +143,20 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
         
         # Live status and node info on the right
         html.Div(style={'width': '30%', 'padding': '10px', 'backgroundColor': '#1e1e1e', 'marginLeft': '10px', 'display': 'flex', 'flexDirection': 'column'}, children=[
+            # refresh settings panel at the top
+            html.Div(style={'padding': '10px', 'border': '1px solid #444', 'marginBottom': '10px'}, children=[
+                html.H4("Refresh Settings"),
+                html.Label("Refresh Interval (ms):", style={'fontSize': '12px'}),
+                dcc.Input(
+                    id='interval-setting',
+                    type='number',
+                    value=10000,
+                    min=5000,
+                    step=5000,
+                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                )
+            ]),
+
             # live status display at the top
             html.Div(children=[
                 html.H3("Live Status"),
@@ -165,9 +179,17 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
         ])
     ]),
     
-    dcc.Interval(id='refresh-timer', interval=1000, n_intervals=0)
+    dcc.Interval(id='refresh-timer', interval=10000, n_intervals=0)
 ])
 
+@app.callback(
+    Output('refresh-timer', 'interval'),
+    [Input('interval-setting', 'value')]
+)
+def update_refresh_rate(value):
+    if value is None or value < 5000:
+        return 1000
+    return value
 
 @app.callback(
     [Output('cfg-graph', 'stylesheet'),
