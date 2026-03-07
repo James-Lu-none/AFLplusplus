@@ -28,26 +28,21 @@ libc = ctypes.CDLL("libc.so.6")
 shmat = libc.shmat
 shmat.restype = ctypes.c_void_p
 
-def get_afl_shm_id():
+def get_afl_shm_ptr(target_name="target_normal", shm_name="AFL_DIST_KV_SHM_ID"):
     # try to find the shared memory ID from the environment variables of the running target_normal process
     try:
-        pid_list = subprocess.check_output(["pidof", "target_normal"]).decode().split()
+        pid_list = subprocess.check_output(["pidof", target_name]).decode().split()
         for pid in pid_list:
             with open(f"/proc/{pid}/environ", "rb") as f:
                 env = f.read().split(b'\0')
                 for e in env:
-                    if e.startswith(b"__AFL_DIST_KV_SHM_ID="):
-                        return int(e.split(b"=")[1])
+                    if shm_name.encode() in e:
+                        shm_id = int(e.split(b"=")[1])
+                        ptr = shmat(shm_id, None, 0)
+                        return ptr if ptr != -1 else None
     except Exception as e:
         print(f"unable to find shared memory ID: {e}")
     return None
-
-def get_shm_ptr():
-    shm_id = get_afl_shm_id()
-    if shm_id is None:
-        return None
-    ptr = shmat(shm_id, None, 0)
-    return None if ptr == -1 else ptr
 
 def load_cfg_data(file_path):
     elements = []
@@ -82,7 +77,7 @@ def load_cfg_data(file_path):
     return elements
 
 app = dash.Dash(__name__)
-shm_ptr_global = get_shm_ptr()
+dist_shm_ptr_global = get_afl_shm_ptr("target_normal", "AFL_DIST_KV_SHM_ID")
 
 app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px'}, children=[
     html.H2("AFL++ LLM-Guided Fuzzing Monitor", style={'textAlign': 'center'}),
@@ -124,13 +119,13 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
     [Input('refresh-timer', 'n_intervals')]
 )
 def update_live_data(n):
-    global shm_ptr_global
-    if not shm_ptr_global:
-        shm_ptr_global = get_shm_ptr()
-        if not shm_ptr_global:
+    global dist_shm_ptr_global
+    if not dist_shm_ptr_global:
+        dist_shm_ptr_global = get_shm_ptr()
+        if not dist_shm_ptr_global:
             return dash.no_update, "SHM not found. check __AFL_DIST_KV_SHM_ID"
 
-    dist_kv = SharedDistKVStore.from_address(shm_ptr_global)
+    dist_kv = SharedDistKVStore.from_address(dist_shm_ptr_global)
     
     # 建立新的 StyleSheet
     base_style = [
@@ -162,10 +157,10 @@ def update_live_data(n):
     [State('refresh-timer', 'n_intervals')]
 )
 def display_node_data(data, n):
-    if not data or not shm_ptr_global:
+    if not data or not dist_shm_ptr_global:
         return "Click a node to see if it's the current bottleneck seed."
     
-    dist_kv = SharedDistKVStore.from_address(shm_ptr_global)
+    dist_kv = SharedDistKVStore.from_address(dist_shm_ptr_global)
     clicked_bb = data['id']
     
     for i in range(MAX_TARGETS):
