@@ -1,3 +1,4 @@
+import threading
 import dash
 from dash import html, dcc, Input, Output, State
 import dash_cytoscape as cyto
@@ -6,10 +7,15 @@ import ctypes
 import os
 import re
 import time
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 
 MAX_TARGETS = 64
 MAX_SEED_SIZE = 512
 
+MAP_SIZE = 1048576 
+GRID_DIM = 1024
 class DistanceEntry(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
@@ -78,11 +84,31 @@ def load_cfg_data(file_path):
 
 app = dash.Dash(__name__)
 dist_shm_ptr_global = get_afl_shm_ptr("target_normal", "AFL_DIST_KV_SHM_ID")
+coverageMap_shm_ptr_global = get_afl_shm_ptr("target_normal", "AFL_SHM_ID")
+
+accumulated_map = np.zeros(MAP_SIZE, dtype=np.uint8)
+map_lock = threading.Lock()
+
+def shm_collector():
+    global accumulated_map, coverageMap_shm_ptr_global
+    print("SHM Collector Thread Started.")
+    
+    while True:
+        if not coverageMap_shm_ptr_global:
+            coverageMap_shm_ptr_global = get_afl_shm_ptr("target_normal", "AFL_SHM_ID")
+        else:
+            raw_bytes = ctypes.string_at(coverageMap_shm_ptr_global, MAP_SIZE)
+            current_map = np.frombuffer(raw_bytes, dtype=np.uint8)
+            with map_lock:
+                np.maximum(accumulated_map, current_map, out=accumulated_map)
+        time.sleep(0.001)
+
 
 app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px'}, children=[
     html.H2("AFL++ LLM-Guided Fuzzing Monitor", style={'textAlign': 'center'}),
     
     html.Div(style={'display': 'flex'}, children=[
+        # Graph visualization on the left
         html.Div(style={'width': '70%'}, children=[
             cyto.Cytoscape(
                 id='cfg-graph',
@@ -100,12 +126,27 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
             )
         ]),
         
-        html.Div(style={'width': '30%', 'padding': '20px', 'backgroundColor': '#1e1e1e', 'marginLeft': '10px'}, children=[
-            html.H3("Live Status"),
-            html.Div(id='live-status-info'),
-            html.Hr(),
-            html.H4("Clicked Node Info"),
-            html.Div(id='node-data-display', style={'wordBreak': 'break-all', 'fontFamily': 'monospace', 'fontSize': '12px'})
+        # Live status and node info on the right
+        html.Div(style={'width': '30%', 'padding': '10px', 'backgroundColor': '#1e1e1e', 'marginLeft': '10px', 'display': 'flex', 'flexDirection': 'column'}, children=[
+            # live status display at the top
+            html.Div(children=[
+                html.H3("Live Status"),
+                html.Div(id='live-status-info'),
+                html.Hr(),
+                html.H4("Clicked Node Info"),
+                html.Div(id='node-data-display', style={'wordBreak': 'break-all', 'fontFamily': 'monospace', 'fontSize': '12px', 'minHeight': '100px'}),
+            ]),
+            
+            # coverage heatmap visualization at the bottom
+            html.Div(style={'marginTop': 'auto'}, children=[
+                html.H4("Coverage Map (64KB Bitmap)"),
+                html.Div(id='coverage-stats', style={'fontSize': '14px', 'color': '#00ff00', 'marginBottom': '5px'}),
+                dcc.Graph(
+                    id='coverage-heatmap',
+                    config={'displayModeBar': False},
+                    style={'height': '300px'}
+                )
+            ])
         ])
     ]),
     
@@ -115,7 +156,9 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
 
 @app.callback(
     [Output('cfg-graph', 'stylesheet'),
-     Output('live-status-info', 'children')],
+     Output('live-status-info', 'children'),
+     Output('coverage-heatmap', 'figure'),
+     Output('coverage-stats', 'children')],
     [Input('refresh-timer', 'n_intervals')]
 )
 def update_live_data(n):
@@ -133,7 +176,7 @@ def update_live_data(n):
     ]
 
     status_elements = []
-    
+    # highlight top 5 targets with active seeds
     for i in range(5):
         entry = dist_kv.entries[i]
         if entry.is_active:
@@ -148,7 +191,41 @@ def update_live_data(n):
                 html.Span(f"Dist {entry.min_distance} | BB {curr_bb}")
             ]))
 
-    return base_style, status_elements
+
+    # draw coverage heatmap
+    display_matrix = np.zeros(MAP_SIZE, dtype=np.uint8)
+    stats_text = "Waiting for data..."
+    fig = go.Figure()
+    with map_lock:
+        display_matrix = accumulated_map.copy().reshape((GRID_DIM, GRID_DIM))
+        hit_edges = np.count_nonzero(accumulated_map)
+
+    map_matrix = display_matrix.reshape((GRID_DIM, GRID_DIM))
+    fig.add_trace(go.Heatmap(
+        z=map_matrix,
+        colorscale='Hot',
+        zmin=0,
+        zmax=5,
+        showscale=False,
+        hoverinfo='z'
+    ))
+
+    fig.update_layout(
+        margin=dict(l=0, r=0, b=0, t=0),
+        xaxis={'visible': False},
+        yaxis={'visible': False, 'autorange': 'reversed'},
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+
+    # calculate density
+    total_edges = len(display_matrix)
+    hit_edges = np.count_nonzero(display_matrix)
+    density = (hit_edges / total_edges) * 100
+    stats_text = f"Edges Hit: {hit_edges} | Density: {density:.4f}%"
+
+
+    return base_style, status_elements, fig, stats_text
 
 @app.callback(
     Output('node-data-display', 'children'),
@@ -174,5 +251,9 @@ def display_node_data(data, n):
             
     return f"No active seed stopped at BB {clicked_bb} currently."
 
+
 if __name__ == '__main__':
+    collector_thread = threading.Thread(target=shm_collector, daemon=True)
+    collector_thread.start()
+    
     app.run(host='0.0.0.0', port=8050, debug=False)
