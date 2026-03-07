@@ -80,7 +80,7 @@ RUN git clone --depth=1 https://github.com/vanhauser-thc/afl-cov && \
     (cd afl-cov && make install) && rm -rf afl-cov
 
 WORKDIR /AFLplusplus
-COPY . .
+COPY --exclude=visualization/* . .
 
 ARG CC=gcc-$GCC_VERSION
 ARG CXX=g++-$GCC_VERSION
@@ -102,5 +102,5 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
     echo "export PS1='"'[AFL++ \h] \w \$ '"'" >> ~/.bashrc
 
 WORKDIR /workspace
-RUN cp /AFLplusplus/visualization/* ./
+COPY visualization/ .
 RUN pip install dash dash-cytoscape
