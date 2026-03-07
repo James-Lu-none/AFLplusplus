@@ -1,6 +1,7 @@
 services:
   afl:
     container_name: my-afl-test
+    image: my-aflplusplus
     build: .
     command: sleep infinity
     ports:
