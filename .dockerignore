@@ -7,6 +7,8 @@
 .test
 .test2
 .git
+.gitignore
+.gitmodules
 .dockerignore
 .github
 CITATION.cff

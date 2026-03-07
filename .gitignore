@@ -68,7 +68,6 @@ afl-whatsup.8
 a.out
 as
 compile_commands.json
-core*
 custom_mutators/aflpp/standalone/aflpp-standalone
 custom_mutators/autotokens/standalone/autotokens-standalone
 examples/afl_frida/afl-frida
