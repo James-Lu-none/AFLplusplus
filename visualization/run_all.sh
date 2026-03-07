@@ -15,7 +15,7 @@ echo "init_seed" > $INPUT_DIR/seed.txt
 afl-clang-lto target.c -o target_normal
 
 tmux new-session -d -s $SESSION -n "main" "afl-fuzz -i $INPUT_DIR -o $OUTPUT_DIR -M main -- ./target_normal @@"
-tmux new-window -t $SESSION -n "reader" "python3 dist_shm_reader.py"
+tmux new-window -t $SESSION -n "reader" "python3 app.py"
 
 echo "Fuzzing session '$SESSION' started!"
 echo "Use 'tmux attach -t $SESSION' to see progress."
