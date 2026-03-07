@@ -103,4 +103,4 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
 
 WORKDIR /workspace
 COPY visualization/ .
-RUN pip install dash dash-cytoscape
+RUN pip install dash dash-cytoscape plotly numpy

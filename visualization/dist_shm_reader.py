@@ -139,7 +139,7 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
             
             # coverage heatmap visualization at the bottom
             html.Div(style={'marginTop': 'auto'}, children=[
-                html.H4("Coverage Map (64KB Bitmap)"),
+                html.H4("Coverage Map"),
                 html.Div(id='coverage-stats', style={'fontSize': '14px', 'color': '#00ff00', 'marginBottom': '5px'}),
                 dcc.Graph(
                     id='coverage-heatmap',
