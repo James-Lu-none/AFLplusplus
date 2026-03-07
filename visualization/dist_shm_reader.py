@@ -63,8 +63,8 @@ def load_cfg_data(file_path):
                         nodes.add(node_id)
 
                 color = "#888"
-                if "(TRUE)" in cond: color = "#28a745" # 綠
-                elif "(FALSE)" in cond: color = "#dc3545" # 紅
+                if "(TRUE)" in cond: color = "#28a745"
+                elif "(FALSE)" in cond: color = "#dc3545"
                 
                 elements.append({
                     'data': {
@@ -121,7 +121,7 @@ app.layout = html.Div(style={'backgroundColor': '#121212', 'color': 'white', 'he
 def update_live_data(n):
     global dist_shm_ptr_global
     if not dist_shm_ptr_global:
-        dist_shm_ptr_global = get_shm_ptr()
+        dist_shm_ptr_global = get_afl_shm_ptr("target_normal", "AFL_DIST_KV_SHM_ID")
         if not dist_shm_ptr_global:
             return dash.no_update, "SHM not found. check __AFL_DIST_KV_SHM_ID"
 
@@ -169,7 +169,8 @@ def display_node_data(data, n):
             content = bytes(entry.seed_content[:entry.seed_len])
             return html.Div([
                 html.P(f"Seed associated with BB {clicked_bb}:"),
-                html.Code(content.hex(), style={'color': '#ff79c6'})
+                html.Code(content.hex(), style={'color': '#ff79c6'}),
+                html.P(f"Seed in ASCII: {content.decode(errors='replace')}", style={'color': '#8be9fd'})
             ])
             
     return f"No active seed stopped at BB {clicked_bb} currently."
