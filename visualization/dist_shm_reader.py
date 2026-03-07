@@ -127,10 +127,9 @@ def update_live_data(n):
 
     dist_kv = SharedDistKVStore.from_address(dist_shm_ptr_global)
     
-    # 建立新的 StyleSheet
     base_style = [
         {'selector': 'node', 'style': {'label': 'data(label)', 'color': 'white', 'background-color': '#007bff'}},
-        {'selector': 'edge', 'style': {'label': 'data(label)', 'line-color': 'data(color)', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'width': 2}}
+        {'selector': 'edge', 'style': {'label': 'data(label)', 'color': 'white', 'line-color': 'data(color)', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'width': 2}}
     ]
 
     status_elements = []
