@@ -410,6 +410,7 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
   }
 
+#ifdef custom_instrumentation
   // add dist shm setup
   if (shm->dist_mode) {
     shm->dist_shm_id = shmget(IPC_PRIVATE, sizeof(struct shared_dist_kv_store),
@@ -430,6 +431,7 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
       shm->dist_kv_map->entries[i].min_distance = UINT32_MAX;
     }
   }
+#endif
 
 #endif
 
@@ -439,4 +441,3 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
   return shm->map;
 
 }
-

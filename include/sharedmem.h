@@ -58,8 +58,10 @@ typedef struct sharedmem {
   int             shmemfuzz_mode;
   struct cmp_map *cmp_map;
 
+#ifdef custom_instrumentation
   int                          dist_mode;
   struct shared_dist_kv_store *dist_kv_map;
+#endif
 
 } sharedmem_t;
 

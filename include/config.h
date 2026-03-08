@@ -539,6 +539,8 @@ We add 4 byte for one u32 length field. */
 /* ASAN SHM ID */
 #define AFL_ASAN_FUZZ_SHM_ENV_VAR "__AFL_ASAN_SHM_ID"
 
+#define custom_instrumentation
+#ifdef custom_instrumentation
 /* 距離計算 SHM ID */
 #define MAX_TARGETS 64
 #define MAX_SEED_SIZE 512
@@ -558,6 +560,7 @@ struct shared_dist_kv_store {
 };
 
 #define DIST_SHM_ENV_VAR "__AFL_DIST_KV_SHM_ID"
+#endif
 
 /* CPU Affinity lockfile env var */
 

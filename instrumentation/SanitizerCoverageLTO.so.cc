@@ -428,7 +428,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   Int8Ty = IRB.getInt8Ty();
   Int1Ty = IRB.getInt1Ty();
 
-  /* ===== custom instrumentation ===== */
+#ifdef custom_instrumentation
   std::deque<BasicBlock *>         WorkList;
   struct TargetInfo {
     std::string filename;
@@ -502,7 +502,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     }
     fprintf(stderr, "[LTO-BFS] Distance Calculation Complete for target %s:%d. Total BBs mapped: %zu\n", T.filename.c_str(), T.line, BBToTargetsMap.size());
   }
-
+#endif
 
   /* AFL++ START */
   char        *ptr;
@@ -2199,8 +2199,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
-    /* ===== custom instrumentation ===== */
-
+#ifdef custom_instrumentation
     // output CFG edges for visualization
     std::string bbName;
     {
@@ -2274,8 +2273,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
       }
       edgeFile.close();
     }
+#endif
 
-    /* ===== custom instrumentation ===== */
+#ifdef custom_instrumentation
     // instrument __afl_report_target_batch
     // 在這裡插樁可以避免被shouldInstrumentBlock擋掉
     // 檢查此 BB 是否在距離地圖中
@@ -2326,7 +2326,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
                       {ConstantInt::get(Int32Ty, num_targets), ArrayPtr});
       }
     }
-    /* ===== done custom instrumentation ===== */
+#endif
 
     if (!instrument_ctx)
       if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))

@@ -80,8 +80,9 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   memset(afl, 0, sizeof(afl_state_t));
 
   afl->shm.map_size = map_size ? map_size : MAP_SIZE;
-
+#ifdef custom_instrumentation
   afl->shm.dist_mode = 1;
+#endif
   afl->smallest_favored = -1;
   afl->afl_ijon_history_limit = 20;
   afl->w_init = 0.9;

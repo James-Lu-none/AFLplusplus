@@ -3720,6 +3720,7 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
 
 }
 
+#ifdef custom_instrumentation
 void __afl_report_target_batch(uint32_t count, uint32_t *data) {
   if (!__afl_dist_shm) return;
 
@@ -3746,3 +3747,4 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
     }
   }
 }
+#endif
