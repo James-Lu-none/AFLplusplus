@@ -1,8 +1,8 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED
 
-def create_layout(cfg_elements, initial_stylesheet):
+def create_layout(initial_stylesheet):
     """
     Creates the main Dash layout.
     """
@@ -13,10 +13,10 @@ def create_layout(cfg_elements, initial_stylesheet):
             
             html.Div(style={'display': 'flex'}, children=[
                 # Graph visualization on the left
-                html.Div(style={'width': '70%'}, children=[
+                html.Div(id='cfg-graph-container', style={'width': '70%'}, children=[
                     cyto.Cytoscape(
                         id='cfg-graph',
-                        elements=cfg_elements,
+                        elements=[],
                         autoungrabify=True,
                         autolock=True,
                         userZoomingEnabled=True,
@@ -61,6 +61,14 @@ def create_layout(cfg_elements, initial_stylesheet):
                                     min=0,
                                     step=1,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
+                                html.Hr(),
+                                html.Label("Visualization Settings", style={'fontSize': '12px'}),
+                                dcc.Checklist(
+                                    id='cfg-enabled-toggle',
+                                    options=[{'label': ' Enable CFG Graph', 'value': 'enabled'}],
+                                    value=['enabled'] if DEFAULT_CFG_ENABLED else [],
+                                    style={'fontSize': '14px', 'marginTop': '5px'}
                                 )
                             ]
                         ),

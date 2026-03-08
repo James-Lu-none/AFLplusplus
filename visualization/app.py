@@ -121,16 +121,28 @@ def display_node_data(data, n):
 
 @app.callback(
     Output('cfg-graph', 'elements'),
-    [Input('top-n-input', 'value')]
+    [Input('top-n-input', 'value'),
+     Input('cfg-enabled-toggle', 'value')]
 )
-def update_cfg_elements(top_n):
+def update_cfg_elements(top_n, cfg_enabled):
+    if not cfg_enabled or 'enabled' not in cfg_enabled:
+        return []
+    
     if top_n is None:
         top_n = DEFAULT_TOP_N
     return load_cfg_with_graphviz(CFG_EDGES_FILE, top_n)
 
-# Initial load of CFG
-elements = load_cfg_with_graphviz(CFG_EDGES_FILE, DEFAULT_TOP_N)
-app.layout = create_layout(elements, get_default_stylesheet())
+@app.callback(
+    Output('cfg-graph', 'style'),
+    [Input('cfg-enabled-toggle', 'value')]
+)
+def toggle_cfg_visibility(cfg_enabled):
+    base_style = {'width': '100%', 'height': '750px', 'border': '1px solid #444'}
+    if not cfg_enabled or 'enabled' not in cfg_enabled:
+        base_style['display'] = 'none'
+    return base_style
+
+app.layout = create_layout(get_default_stylesheet())
 
 if __name__ == '__main__':
     # Start the SHM collector thread
