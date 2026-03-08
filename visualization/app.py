@@ -18,7 +18,7 @@ from core.shm_handler import (
     map_lock,
     dist_shm_ptr
 )
-from core.cfg_processor import load_cfg_data
+from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz
 from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
@@ -119,8 +119,8 @@ def display_node_data(data, n):
     return f"No active seed stopped at BB {clicked_bb} currently."
 
 # Initial load of CFG
-initial_cfg_elements = load_cfg_data(CFG_EDGES_FILE)
-app.layout = create_layout(initial_cfg_elements, get_default_stylesheet())
+elements = load_cfg_with_graphviz(CFG_EDGES_FILE)
+app.layout = create_layout(elements, get_default_stylesheet())
 
 if __name__ == '__main__':
     # Start the SHM collector thread

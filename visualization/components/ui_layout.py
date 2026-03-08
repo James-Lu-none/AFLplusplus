@@ -21,18 +21,7 @@ def create_layout(cfg_elements, initial_stylesheet):
                         autolock=True,
                         userZoomingEnabled=True,
                         userPanningEnabled=True,
-                        layout={
-                            'name': 'cose', 
-                            'idealEdgeLength': 100,
-                            'nodeOverlap': 20,
-                            'refresh': 20,
-                            'fit': True,
-                            'padding': 30,
-                            'randomize': False,
-                            'componentSpacing': 100,
-                            'nodeRepulsion': 400000,
-                            'edgeElasticity': 100,
-                        },
+                        layout={'name': 'preset'},
                         style={'width': '100%', 'height': '750px', 'border': '1px solid #444'},
                         stylesheet=initial_stylesheet
                     )

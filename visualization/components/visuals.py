@@ -10,7 +10,9 @@ def get_default_stylesheet():
         {'selector': 'node', 'style': {
             'label': 'data(label)', 
             'color': 'white', 
-            'background-color': '#007bff'
+            'background-color': '#007bff',
+            'width': '30px',
+            'height': '30px',            
         }},
         {'selector': 'edge', 'style': {
             'label': 'data(label)', 
