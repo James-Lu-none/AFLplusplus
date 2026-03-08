@@ -68,9 +68,8 @@ def load_cfg_with_graphviz(file_path):
     if len(G.nodes()) == 0:
         return [], []
     
-    print(f"Calculating Graphviz dot layout for {len(G.nodes())} nodes...")
+    print(f"Calculating Graphviz layout for {len(G.nodes())} nodes and {len(G.edges())} edges...")
     pos = graphviz_layout(G, prog='dot')
-    # pos = nx.spring_layout(G)
 
     all_nodes = []
     for node_id in G.nodes():
