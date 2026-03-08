@@ -45,13 +45,13 @@ def load_cfg_data(file_path):
         
     return elements
 
-def load_cfg_with_graphviz(file_path):
+def load_cfg_with_graphviz(file_path, top_n=0):
     G = nx.DiGraph()
     edges_info = []
     edge_pattern = re.compile(r"%?([\w\.]+),\s*%?([\w\.]+),\s*\[(.*)\]")
     
     if not os.path.exists(file_path):
-        return [], []
+        return []
     
     with open(file_path, "r") as f:
         for line in f:
@@ -66,10 +66,33 @@ def load_cfg_with_graphviz(file_path):
                 edges_info.append({'u': u, 'v': v, 'label': cond if cond != "none" else "", 'color': color})
 
     if len(G.nodes()) == 0:
-        return [], []
+        return []
     
+    # 1. Calculate degree of all nodes
+    # 2. Find top N nodes that has most number of degree
+    if top_n > 0:
+        degrees = dict(G.degree())
+        sorted_nodes = sorted(degrees.items(), key=lambda x: x[1], reverse=True)
+        top_n_nodes = [node for node, degree in sorted_nodes[:top_n]]
+        
+        # 3. remove related egdes for top N nodes from the graph
+        # Actually, removing nodes also removes their edges in NetworkX
+        print(f"Removing top {top_n} nodes: {top_n_nodes}")
+        G.remove_nodes_from(top_n_nodes)
+        
+        # Also need to filter edges_info to remove those associated with top_n_nodes
+        edges_info = [e for e in edges_info if e['u'] not in top_n_nodes and e['v'] not in top_n_nodes]
+
+    if len(G.nodes()) == 0:
+        return []
+
+    # 4. proceed the original Graphviz layout 
     print(f"Calculating Graphviz layout for {len(G.nodes())} nodes and {len(G.edges())} edges...")
-    pos = graphviz_layout(G, prog='dot')
+    try:
+        pos = graphviz_layout(G, prog='dot')
+    except Exception as e:
+        print(f"Graphviz layout failed: {e}. Falling back to spring layout.")
+        pos = nx.spring_layout(G)
 
     all_nodes = []
     for node_id in G.nodes():

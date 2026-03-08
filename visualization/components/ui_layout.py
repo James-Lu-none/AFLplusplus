@@ -51,6 +51,16 @@ def create_layout(cfg_elements, initial_stylesheet):
                                     min=MIN_REFRESH_INTERVAL,
                                     step=5000,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
+                                html.Hr(),
+                                html.Label("Filter Top N Nodes (Degree):", style={'fontSize': '12px'}),
+                                dcc.Input(
+                                    id='top-n-input',
+                                    type='number',
+                                    value=0,
+                                    min=0,
+                                    step=1,
+                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
                                 )
                             ]
                         ),

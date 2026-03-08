@@ -8,7 +8,8 @@ from config import (
     TARGET_PROCESS_NAME, 
     DIST_KV_SHM_NAME, 
     MIN_REFRESH_INTERVAL,
-    MAX_TARGETS
+    MAX_TARGETS,
+    DEFAULT_TOP_N
 )
 from core.models import SharedDistKVStore
 from core.shm_handler import (
@@ -118,8 +119,17 @@ def display_node_data(data, n):
             
     return f"No active seed stopped at BB {clicked_bb} currently."
 
+@app.callback(
+    Output('cfg-graph', 'elements'),
+    [Input('top-n-input', 'value')]
+)
+def update_cfg_elements(top_n):
+    if top_n is None:
+        top_n = DEFAULT_TOP_N
+    return load_cfg_with_graphviz(CFG_EDGES_FILE, top_n)
+
 # Initial load of CFG
-elements = load_cfg_with_graphviz(CFG_EDGES_FILE)
+elements = load_cfg_with_graphviz(CFG_EDGES_FILE, DEFAULT_TOP_N)
 app.layout = create_layout(elements, get_default_stylesheet())
 
 if __name__ == '__main__':
