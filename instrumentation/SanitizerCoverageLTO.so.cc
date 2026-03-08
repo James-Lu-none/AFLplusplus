@@ -2199,8 +2199,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
-    /* cfg generation */
+    /* ===== custom instrumentation ===== */
 
+    // output CFG edges for visualization
     std::string bbName;
     {
       llvm::raw_string_ostream rso(bbName);
@@ -2265,7 +2266,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         edgeFile << bbName << ", " << succName << ", [";
         if (BI && BI->isConditional()) {
-          // 標註 True/False 分支
           edgeFile << condStr << (i == 0 ? " (TRUE)" : " (FALSE)");
         } else {
           edgeFile << "none";
@@ -2275,7 +2275,8 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
       edgeFile.close();
     }
 
-    /* instrument __afl_report_target_batch */
+    /* ===== custom instrumentation ===== */
+    // instrument __afl_report_target_batch
     // 在這裡插樁可以避免被shouldInstrumentBlock擋掉
     // 檢查此 BB 是否在距離地圖中
     auto it = BBToTargetsMap.find(&BB);
@@ -2325,6 +2326,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
                       {ConstantInt::get(Int32Ty, num_targets), ArrayPtr});
       }
     }
+    /* ===== done custom instrumentation ===== */
 
     if (!instrument_ctx)
       if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
