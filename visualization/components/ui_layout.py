@@ -49,7 +49,7 @@ def create_layout(cfg_elements, initial_stylesheet):
                                     type='number',
                                     value=DEFAULT_REFRESH_INTERVAL,
                                     min=MIN_REFRESH_INTERVAL,
-                                    step=5000,
+                                    step=1000,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
                                 ),
                                 html.Hr(),
