@@ -102,5 +102,6 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
     echo "export PS1='"'[AFL++ \h] \w \$ '"'" >> ~/.bashrc
 
 WORKDIR /workspace
-RUN pip install dash dash-cytoscape plotly numpy
+RUN apt-get update && apt-get install -y graphviz
+RUN pip install dash dash-cytoscape plotly numpy networkx pydot
 COPY visualization/ .
