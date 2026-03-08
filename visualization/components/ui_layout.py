@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, MIN_REFRESH_INTERVAL
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL
 
 def create_layout(cfg_elements, initial_stylesheet):
     """
@@ -57,7 +57,7 @@ def create_layout(cfg_elements, initial_stylesheet):
                                 dcc.Input(
                                     id='top-n-input',
                                     type='number',
-                                    value=0,
+                                    value=DEFAULT_TOP_N,
                                     min=0,
                                     step=1,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
