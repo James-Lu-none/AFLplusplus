@@ -101,6 +101,17 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
     echo 'alias joe="joe --wordwrap --joe_state -nobackup"' >> ~/.bashrc && \
     echo "export PS1='"'[AFL++ \h] \w \$ '"'" >> ~/.bashrc
 
+# Install CodeQL CLI and set up environment for CodeQL analysis
+RUN apt-get update && apt-get install -y unzip
+ENV CODEQL_VERSION=v2.16.5
+RUN wget -q https://github.com/github/codeql-cli-binaries/releases/download/${CODEQL_VERSION}/codeql-linux64.zip && \
+    unzip codeql-linux64.zip -d /opt && \
+    rm codeql-linux64.zip && \
+    ln -s /opt/codeql/codeql /usr/bin/codeql
+RUN mkdir -p /opt/codeql-home && \
+    git clone --depth=1 https://github.com/github/codeql /opt/codeql-home/codeql-repo
+ENV CODEQL_PATH="/opt/codeql/codeql"
+
 WORKDIR /workspace
 RUN apt-get update && apt-get install -y graphviz
 RUN pip install dash dash-cytoscape plotly numpy networkx pydot
