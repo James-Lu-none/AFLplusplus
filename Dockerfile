@@ -103,7 +103,7 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
 
 # Install CodeQL CLI and set up environment for CodeQL analysis
 RUN apt-get update && apt-get install -y unzip
-ENV CODEQL_VERSION=v2.16.5
+ENV CODEQL_VERSION=v2.25.0
 RUN wget -q https://github.com/github/codeql-cli-binaries/releases/download/${CODEQL_VERSION}/codeql-linux64.zip && \
     unzip codeql-linux64.zip -d /opt && \
     rm codeql-linux64.zip && \
@@ -111,6 +111,7 @@ RUN wget -q https://github.com/github/codeql-cli-binaries/releases/download/${CO
 RUN mkdir -p /opt/codeql-home && \
     git clone --depth=1 https://github.com/github/codeql /opt/codeql-home/codeql-repo
 ENV CODEQL_PATH="/opt/codeql/codeql"
+RUN codeql pack download codeql/cpp-queries
 
 WORKDIR /workspace
 RUN apt-get update && apt-get install -y graphviz
