@@ -461,9 +461,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   fprintf(stderr, "[LTO-BFS] Loaded %zu targets\n", targets.size());
 
   std::ofstream targetMapFile("target_bb_map.txt", std::ios::trunc);
-  if (targetMapFile.is_open()) {
-      targetMapFile << "TargetID, SourceLocation, BasicBlockName, LineRange\n";
-  }
 
   for (auto &T : targets) {
     BasicBlock *TargetBB = nullptr;
@@ -513,7 +510,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         if (TargetBB) break;
       }
     }
-    if (targetMapFile.is_open()) targetMapFile.close();
 
     if (!TargetBB) continue;
 
@@ -557,6 +553,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     }
     fprintf(stderr, "[LTO-BFS] Distance Calculation Complete for target %s:%d. Total BBs mapped: %zu\n", T.filename.c_str(), T.lineStart, BBToTargetsMap.size());
   }
+  if (targetMapFile.is_open()) targetMapFile.close();
 #endif
 
   /* AFL++ START */
@@ -2255,7 +2252,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     }
 
 #ifdef custom_instrumentation
-    // output bb_lines.txt for basic block to source line mapping
+    // output basic block to source line mapping to file
     uint32_t    minLine = 0xFFFFFFFF;
     uint32_t    maxLine = 0;
     std::string fileName = "unknown";
