@@ -70,34 +70,36 @@ def update_live_data(n):
             html.Th("Target", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Min Dist", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Last BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
-            html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
+            html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Hit Count", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
         ]))
     ]
 
     rows = []
     for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
-        if entry.is_active:
-            curr_bb = str(entry.last_bb_id)
-            # Highlight top targets with active seeds in the graph
-            if i < 5:
-                base_style.append({
-                    'selector': f'node[id = "{curr_bb}"]',
-                    'style': {
-                        'background-color': '#ffc107', 
-                        'width': '45px', 
-                        'height': '45px', 
-                        'border-width': '2px', 
-                        'border-color': 'white'
-                    }
-                })
-            
-            rows.append(html.Tr([
-                html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00'}),
-                html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
-                html.Td(f"{curr_bb}", style={'padding': '5px'}),
-                html.Td(f"{entry.seed_len}", style={'padding': '5px'})
-            ]))
+        # Show all entries as per user's manual change, but show hit count
+        curr_bb = str(entry.last_bb_id)
+        # Highlight top targets with active seeds in the graph
+        if entry.active_count > 0 and i < 5:
+            base_style.append({
+                'selector': f'node[id = "{curr_bb}"]',
+                'style': {
+                    'background-color': '#ffc107', 
+                    'width': '45px', 
+                    'height': '45px', 
+                    'border-width': '2px', 
+                    'border-color': 'white'
+                }
+            })
+        
+        rows.append(html.Tr([
+            html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
+            html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
+            html.Td(f"{curr_bb}", style={'padding': '5px'}),
+            html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
+            html.Td(f"{entry.active_count}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#ff4444'})
+        ]))
 
     if not rows:
         status_elements = [html.P("No active targets found.", style={'color': '#888'})]
@@ -139,7 +141,7 @@ def display_node_data(data, n):
     
     for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
-        if entry.is_active and str(entry.last_bb_id) == clicked_bb:
+        if entry.active_count > 0 and str(entry.last_bb_id) == clicked_bb:
             content = bytes(entry.seed_content[:entry.seed_len])
             return html.Div([
                 html.P(f"Seed associated with BB {clicked_bb}:"),

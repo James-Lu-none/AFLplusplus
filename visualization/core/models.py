@@ -8,7 +8,7 @@ class DistanceEntry(ctypes.Structure):
         ("min_distance", ctypes.c_uint32),
         ("last_bb_id", ctypes.c_uint32),
         ("seed_len", ctypes.c_uint32),
-        ("is_active", ctypes.c_uint32),
+        ("active_count", ctypes.c_uint32),
         ("seed_content", ctypes.c_uint8 * MAX_SEED_SIZE),
     ]
 
