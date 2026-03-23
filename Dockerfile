@@ -29,14 +29,12 @@ ENV NO_ARCH_OPT=1
 ENV IS_DOCKER=1
 
 RUN apt-get update && apt-get full-upgrade -y && \
-    apt-get install -y --no-install-recommends tmux wget ca-certificates apt-utils && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends tmux wget ca-certificates apt-utils unzip
 
 #RUN echo "deb [signed-by=/etc/apt/keyrings/llvm-snapshot.gpg.key] http://apt.llvm.org/jammy/ llvm-toolchain-jammy-${LLVM_VERSION} main" > /etc/apt/sources.list.d/llvm.list && \
 #    wget -qO /etc/apt/keyrings/llvm-snapshot.gpg.key https://apt.llvm.org/llvm-snapshot.gpg.key
 
-RUN apt-get update && \
-    apt-get -y install --no-install-recommends \
+RUN apt-get -y install --no-install-recommends \
     make cmake automake meson ninja-build bison flex \
     git xz-utils bzip2 wget jupp nano bash-completion less vim joe ssh psmisc \
     python3 python3-dev python3-pip python-is-python3 python3-venv \
@@ -55,9 +53,26 @@ RUN apt-get update && \
     llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-runtime llvm-${LLVM_VERSION}-tools \
     $([ "$(dpkg --print-architecture)" = "amd64" ] && echo gcc-${GCC_VERSION}-multilib gcc-multilib) \
     $([ "$(dpkg --print-architecture)" = "arm64" ] && echo libcapstone-dev) && \
-    rm -rf /var/lib/apt/lists/*
+    
     # gcc-multilib is only used for -m32 support on x86
     # libcapstone-dev is used for coresight_mode on arm64
+
+# python
+RUN apt-get -y install --no-install-recommends \
+    graphviz 
+RUN pip install dash dash-cytoscape plotly numpy networkx pydot
+RUN rm -rf /var/lib/apt/lists/*
+
+# Install CodeQL CLI and set up environment for CodeQL analysis
+ENV CODEQL_VERSION=v2.25.0
+RUN wget -q https://github.com/github/codeql-cli-binaries/releases/download/${CODEQL_VERSION}/codeql-linux64.zip && \
+    unzip codeql-linux64.zip -d /opt && \
+    rm codeql-linux64.zip && \
+    ln -s /opt/codeql/codeql /usr/bin/codeql
+RUN mkdir -p /opt/codeql-home && \
+    git clone --depth=1 https://github.com/github/codeql /opt/codeql-home/codeql-repo
+ENV CODEQL_PATH="/opt/codeql/codeql"
+RUN codeql pack download codeql/cpp-queries
 
 RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_VERSION} 0 && \
     update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${GCC_VERSION} 0 && \
@@ -101,19 +116,5 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
     echo 'alias joe="joe --wordwrap --joe_state -nobackup"' >> ~/.bashrc && \
     echo "export PS1='"'[AFL++ \h] \w \$ '"'" >> ~/.bashrc
 
-# Install CodeQL CLI and set up environment for CodeQL analysis
-RUN apt-get update && apt-get install -y unzip
-ENV CODEQL_VERSION=v2.25.0
-RUN wget -q https://github.com/github/codeql-cli-binaries/releases/download/${CODEQL_VERSION}/codeql-linux64.zip && \
-    unzip codeql-linux64.zip -d /opt && \
-    rm codeql-linux64.zip && \
-    ln -s /opt/codeql/codeql /usr/bin/codeql
-RUN mkdir -p /opt/codeql-home && \
-    git clone --depth=1 https://github.com/github/codeql /opt/codeql-home/codeql-repo
-ENV CODEQL_PATH="/opt/codeql/codeql"
-RUN codeql pack download codeql/cpp-queries
-
 WORKDIR /workspace
-RUN apt-get update && apt-get install -y graphviz
-RUN pip install dash dash-cytoscape plotly numpy networkx pydot
 COPY visualization/ .
