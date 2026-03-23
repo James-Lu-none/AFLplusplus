@@ -52,12 +52,14 @@ RUN apt-get -y install --no-install-recommends \
     lld-${LLVM_VERSION} lldb-${LLVM_VERSION} llvm-${LLVM_VERSION} \
     llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-runtime llvm-${LLVM_VERSION}-tools \
     $([ "$(dpkg --print-architecture)" = "amd64" ] && echo gcc-${GCC_VERSION}-multilib gcc-multilib) \
-    $([ "$(dpkg --print-architecture)" = "arm64" ] && echo libcapstone-dev) && \
+    $([ "$(dpkg --print-architecture)" = "arm64" ] && echo libcapstone-dev)
     
     # gcc-multilib is only used for -m32 support on x86
     # libcapstone-dev is used for coresight_mode on arm64
 
 # python
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 RUN apt-get -y install --no-install-recommends \
     graphviz 
 RUN pip install dash dash-cytoscape plotly numpy networkx pydot
@@ -102,9 +104,6 @@ ARG CXX=g++-$GCC_VERSION
 
 # Used in CI to prevent a 'make clean' which would remove the binaries to be tested
 ARG TEST_BUILD
-
-RUN python3 -m venv .venv
-ENV PATH="/AFLplusplus/.venv/bin:$PATH"
 
 RUN sed -i.bak 's/^	-/	/g' GNUmakefile && \
     make clean && make distrib && \
