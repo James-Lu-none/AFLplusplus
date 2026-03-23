@@ -93,6 +93,19 @@ def update_live_data(n):
             file, start, end = bb_map[target_bb]
             target_bb_info = f"{file}:{start}-{end} ({target_bb})"
             
+        # Highlight target BBs in the graph as red
+        if target_bb != "N/A":
+            base_style.append({
+                'selector': f'node[id = "{target_bb}"]',
+                'style': {
+                    'background-color': '#ff4444', 
+                    'width': '35px', 
+                    'height': '35px', 
+                    'border-width': '2px', 
+                    'border-color': 'white'
+                }
+            })
+
         # Highlight top targets with active seeds in the graph
         if entry.active_count > 0 and i < 5:
             base_style.append({
@@ -108,7 +121,7 @@ def update_live_data(n):
         
         rows.append(html.Tr([
             html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
-            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px'}),
+            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444'}),
             html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
             html.Td(f"{curr_bb}", style={'padding': '5px'}),
             html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
