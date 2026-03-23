@@ -64,26 +64,56 @@ def update_live_data(n):
     base_style = get_default_stylesheet()
     status_elements = []
 
-    # Highlight top targets with active seeds
-    for i in range(5):
+    # Distance Entries Table
+    table_header = [
+        html.Thead(html.Tr([
+            html.Th("Target", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Min Dist", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Last BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
+        ]))
+    ]
+
+    rows = []
+    for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
         if entry.is_active:
             curr_bb = str(entry.last_bb_id)
-            base_style.append({
-                'selector': f'node[id = "{curr_bb}"]',
-                'style': {
-                    'background-color': '#ffc107', 
-                    'width': '45px', 
-                    'height': '45px', 
-                    'border-width': '2px', 
-                    'border-color': 'white'
-                }
-            })
+            # Highlight top targets with active seeds in the graph
+            if i < 5:
+                base_style.append({
+                    'selector': f'node[id = "{curr_bb}"]',
+                    'style': {
+                        'background-color': '#ffc107', 
+                        'width': '45px', 
+                        'height': '45px', 
+                        'border-width': '2px', 
+                        'border-color': 'white'
+                    }
+                })
             
-            status_elements.append(html.P([
-                html.Span(f"Target {i}: ", style={'color': '#00ff00'}),
-                html.Span(f"Dist {entry.min_distance} | BB {curr_bb}")
+            rows.append(html.Tr([
+                html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00'}),
+                html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
+                html.Td(f"{curr_bb}", style={'padding': '5px'}),
+                html.Td(f"{entry.seed_len}", style={'padding': '5px'})
             ]))
+
+    if not rows:
+        status_elements = [html.P("No active targets found.", style={'color': '#888'})]
+    else:
+        table_body = [html.Tbody(rows)]
+        status_elements = [
+            html.Table(
+                table_header + table_body, 
+                style={
+                    'width': '100%', 
+                    'fontSize': '12px', 
+                    'borderCollapse': 'collapse',
+                    'marginTop': '10px'
+                }
+            )
+        ]
 
     # Coverage Heatmap
     fig, stats_text = generate_coverage_heatmap(accumulated_map, map_lock)
