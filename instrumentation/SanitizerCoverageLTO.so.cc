@@ -460,6 +460,11 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   }
   fprintf(stderr, "[LTO-BFS] Loaded %zu targets\n", targets.size());
 
+  std::ofstream targetMapFile("target_bb_map.txt", std::ios::trunc);
+  if (targetMapFile.is_open()) {
+      targetMapFile << "TargetID, SourceLocation, BasicBlockName, LineRange\n";
+  }
+
   for (auto &T : targets) {
     BasicBlock *TargetBB = nullptr;
     // scan through all basic blocks in the module to find the target BB.
@@ -493,6 +498,11 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
                   std::string bbName;
                   llvm::raw_string_ostream rso(bbName);
                   BB.printAsOperand(rso, false);
+
+                  if (targetMapFile.is_open()) {
+                    targetMapFile << T.id << "," << bbName << "\n";
+                  }
+
                   fprintf(stderr, "[LTO-BFS] Target Match! Line %d in BB %s (Range: %u-%u)\n",
                           T.lineStart, bbName.c_str(), range.minLine, range.maxLine);
                   TargetBB = &BB;
@@ -503,6 +513,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         if (TargetBB) break;
       }
     }
+    if (targetMapFile.is_open()) targetMapFile.close();
 
     if (!TargetBB) continue;
 
@@ -2266,7 +2277,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     llvm::raw_string_ostream rso(bbName);
     BB.printAsOperand(rso, false);
 
-    std::ofstream bbFile("bb_lines.txt", std::ios::app);
+    std::ofstream bbFile("bb_lines_map.txt", std::ios::app);
     if (bbFile.is_open()) {
         if (hasDebug) bbFile << bbName << "," << fileName << "," << minLine << "," << maxLine << "\n";
         else bbFile << bbName << ",no_debug_info\n";
