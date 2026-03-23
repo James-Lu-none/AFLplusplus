@@ -9,10 +9,19 @@ def get_default_stylesheet():
     return [
         {'selector': 'node', 'style': {
             'label': 'data(label)', 
-            'color': 'white', 
+            'color': '#888', # Dimmed by default
             'background-color': '#007bff',
             'width': '30px',
-            'height': '30px',            
+            'height': '30px',
+            'font-size': '10px'
+        }},
+        {'selector': 'node:selected', 'style': {
+            'color': '#ffffff', # Brighter when selected
+            'font-weight': 'bold',
+            'font-size': '14px',
+            'text-outline-color': '#000',
+            'text-outline-width': '2px',
+            'z-index': 9999
         }},
         {'selector': 'edge', 'style': {
             'label': 'data(label)', 
