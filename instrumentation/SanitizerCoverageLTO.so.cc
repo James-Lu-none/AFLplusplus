@@ -2244,13 +2244,36 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     }
 
 #ifdef custom_instrumentation
-    // output CFG edges for visualization
-    std::string bbName;
-    {
-      llvm::raw_string_ostream rso(bbName);
-      BB.printAsOperand(rso, false);
+    // output bb_lines.txt for basic block to source line mapping
+    uint32_t    minLine = 0xFFFFFFFF;
+    uint32_t    maxLine = 0;
+    std::string fileName = "unknown";
+    bool        hasDebug = false;
+
+    for (auto &Inst : BB) {
+        if (DILocation *Loc = Inst.getDebugLoc()) {
+            uint32_t line = Loc->getLine();
+            if (line > 0) {
+                if (line < minLine) minLine = line;
+                if (line > maxLine) maxLine = line;
+                if (fileName == "unknown") { fileName = Loc->getFilename().str(); }
+                hasDebug = true;
+            }
+        }
     }
 
+    std::string bbName;
+    llvm::raw_string_ostream rso(bbName);
+    BB.printAsOperand(rso, false);
+
+    std::ofstream bbFile("bb_lines.txt", std::ios::app);
+    if (bbFile.is_open()) {
+        if (hasDebug) bbFile << bbName << "," << fileName << "," << minLine << "," << maxLine << "\n";
+        else bbFile << bbName << ",no_debug_info\n";
+        bbFile.close();
+    }
+
+    // output CFG edges for visualization
     Instruction *TI = BB.getTerminator();
     std::string  condStr = "none";
     BranchInst  *BI = dyn_cast<BranchInst>(TI);
