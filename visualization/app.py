@@ -5,6 +5,7 @@ import os
 
 from config import (
     CFG_EDGES_FILE, 
+    BB_LINES_MAP_FILE,
     TARGET_PROCESS_NAME, 
     DIST_KV_SHM_NAME, 
     MIN_REFRESH_INTERVAL,
@@ -19,7 +20,7 @@ from core.shm_handler import (
     map_lock,
     dist_shm_ptr
 )
-from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz
+from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz, load_bb_lines_map
 from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
@@ -138,18 +139,24 @@ def display_node_data(data, n):
         return "Error accessing SHM data."
 
     clicked_bb = data['id']
+    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
     
+    source_info = f"BB {clicked_bb}"
+    if clicked_bb in bb_map:
+        file, start, end = bb_map[clicked_bb]
+        source_info = f"{file}:{start}-{end} ({clicked_bb})"
+
     for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
         if entry.active_count > 0 and str(entry.last_bb_id) == clicked_bb:
             content = bytes(entry.seed_content[:entry.seed_len])
             return html.Div([
-                html.P(f"Seed associated with BB {clicked_bb}:"),
+                html.P(f"Seed associated with {source_info}:"),
                 html.Code(content.hex(), style={'color': '#ff79c6'}),
                 html.P(f"Seed in ASCII: {content.decode(errors='replace')}", style={'color': '#8be9fd'})
             ])
             
-    return f"No active seed stopped at BB {clicked_bb} currently."
+    return f"No active seed stopped at {source_info} currently."
 
 @app.callback(
     Output('cfg-graph', 'elements'),

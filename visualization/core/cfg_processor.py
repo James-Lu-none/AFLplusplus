@@ -3,12 +3,37 @@ import re
 import networkx as nx
 from networkx.drawing.nx_pydot import graphviz_layout
 
+from config import BB_LINES_MAP_FILE
+
+def load_bb_lines_map(file_path):
+    """
+    Parses bb_lines_map.txt and returns a dictionary mapping bb_id to (filename, start, end).
+    """
+    bb_map = {}
+    if not os.path.exists(file_path):
+        return bb_map
+    
+    # Pattern: %bb_id,filename,start,end
+    pattern = re.compile(r"%?(\w+),([^,]+),(\d+),(\d+)")
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    bb_id, filename, start, end = match.groups()
+                    bb_map[bb_id] = (filename, start, end)
+    except Exception as e:
+        print(f"Error reading BB map file: {e}")
+    return bb_map
+
 def load_cfg_data(file_path):
     """
     Parses a CFG edge file and returns elements for Dash Cytoscape.
     """
     elements = []
     nodes = set()
+    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
+    
     # Pattern for lines such as: %node1, %node2, [label]
     edge_pattern = re.compile(r"%?([\w\.]+),\s*%?([\w\.]+),\s*\[(.*)\]")
     
@@ -23,7 +48,12 @@ def load_cfg_data(file_path):
                     u, v, cond = match.groups()
                     for node_id in [u, v]:
                         if node_id not in nodes:
-                            elements.append({'data': {'id': node_id, 'label': f"BB {node_id}"}})
+                            label = f"BB {node_id}"
+                            if node_id in bb_map:
+                                file, start, end = bb_map[node_id]
+                                label = f"{file}:{start}-{end} ({node_id})"
+                            
+                            elements.append({'data': {'id': node_id, 'label': label}})
                             nodes.add(node_id)
 
                     color = "#888" # Default color
@@ -48,6 +78,7 @@ def load_cfg_data(file_path):
 def load_cfg_with_graphviz(file_path, top_n=0):
     G = nx.DiGraph()
     edges_info = []
+    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
     edge_pattern = re.compile(r"%?([\w\.]+),\s*%?([\w\.]+),\s*\[(.*)\]")
     
     if not os.path.exists(file_path):
@@ -96,8 +127,13 @@ def load_cfg_with_graphviz(file_path, top_n=0):
 
     all_nodes = []
     for node_id in G.nodes():
+        label = f"BB {node_id}"
+        if node_id in bb_map:
+            file, start, end = bb_map[node_id]
+            label = f"{file}:{start}-{end} ({node_id})"
+            
         all_nodes.append({
-            'data': {'id': node_id, 'label': f"BB {node_id}"},
+            'data': {'id': node_id, 'label': label},
             'position': {'x': pos[node_id][0], 'y': pos[node_id][1]*-1},
             'locked': True
         })
