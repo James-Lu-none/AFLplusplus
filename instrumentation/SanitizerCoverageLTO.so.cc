@@ -432,8 +432,14 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   std::deque<BasicBlock *>         WorkList;
   struct TargetInfo {
     std::string filename;
-    uint32_t    line;
+    uint32_t    lineStart;
+    uint32_t    lineEnd;
     uint32_t    id;
+  };
+  struct BBLineRange {
+    uint32_t minLine = 0xFFFFFFFF;
+    uint32_t maxLine = 0;
+    bool hasDebugInfo = false;
   };
 
   // first, scan for the target basic block (manually select two targets for this example, will be replace with automatic target selection with codeql query results in the future)
@@ -447,11 +453,12 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       size_t comma = line.find(',');
       if (comma != std::string::npos) {
           std::string file = line.substr(0, comma);
-          uint32_t lineNum = std::stoi(line.substr(comma + 1));
-          targets.push_back({file, lineNum, id++});
+          uint32_t lineStart = std::stoi(line.substr(comma + 1));
+          uint32_t lineEnd = std::stoi(line.substr(line.find(',', comma + 1) + 1));
+          targets.push_back({file, lineStart, lineEnd, id++});
       }
   }
-  printf("[LTO-BFS] Loaded %zu targets\n", targets.size());
+  fprintf(stderr, "[LTO-BFS] Loaded %zu targets\n", targets.size());
 
   for (auto &T : targets) {
     BasicBlock *TargetBB = nullptr;
@@ -459,15 +466,39 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     for (auto &F : M) {
       if (F.isDeclaration() || F.size() == 0) continue;
       for (auto &BB : F) {
+        BBLineRange range;
+        // find the line number range of this basic block
         for (auto &Inst : BB) {
-          if (DILocation *Loc = Inst.getDebugLoc()) {
-            if (Loc->getFilename().ends_with(T.filename) &&
-                Loc->getLine() == T.line) {
-              printf("[LTO-BFS] Found target instruction in %s:%d\n", T.filename.c_str(), T.line);
-              TargetBB = &BB;
-              break;
+            if (DILocation *Loc = Inst.getDebugLoc()) {
+                uint32_t line = Loc->getLine();
+                if (line > 0) {
+                    range.minLine = std::min(range.minLine, line);
+                    range.maxLine = std::max(range.maxLine, line);
+                    range.hasDebugInfo = true;
+                }
             }
-          }
+        }
+        if (range.hasDebugInfo) {
+            StringRef bbFile = "";
+            for (auto &I : BB) {
+                if (DILocation *L = I.getDebugLoc()) {
+                    bbFile = L->getFilename();
+                    break;
+                }
+            }
+            if (bbFile.ends_with(T.filename)) {
+                fprintf(stderr, "[LTO-BFS] Checking BB in file %s with line range %u-%u against target line %u\n",
+                        bbFile.str().c_str(), range.minLine, range.maxLine, T.lineStart);
+                if (T.lineStart >= range.minLine && T.lineStart <= range.maxLine) {
+                  std::string bbName;
+                  llvm::raw_string_ostream rso(bbName);
+                  BB.printAsOperand(rso, false);
+                  fprintf(stderr, "[LTO-BFS] Target Match! Line %d in BB %s (Range: %u-%u)\n",
+                          T.lineStart, bbName.c_str(), range.minLine, range.maxLine);
+                  TargetBB = &BB;
+                  break;
+                }
+            }
         }
         if (TargetBB) break;
       }
@@ -475,7 +506,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
     if (!TargetBB) continue;
 
-    fprintf(stderr, "[LTO-BFS] Found Target for %s:%d! Starting Global Distance Calculation...\n", T.filename.c_str(), T.line);
+    fprintf(stderr, "[LTO-BFS] Found Target for %s:%d! Starting Global Distance Calculation...\n", T.filename.c_str(), T.lineStart);
     std::deque<BasicBlock *>         WorkList;
     std::map<BasicBlock *, uint32_t> Distances;
     Distances[TargetBB] = 0;
@@ -513,7 +544,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         }
       }
     }
-    fprintf(stderr, "[LTO-BFS] Distance Calculation Complete for target %s:%d. Total BBs mapped: %zu\n", T.filename.c_str(), T.line, BBToTargetsMap.size());
+    fprintf(stderr, "[LTO-BFS] Distance Calculation Complete for target %s:%d. Total BBs mapped: %zu\n", T.filename.c_str(), T.lineStart, BBToTargetsMap.size());
   }
 #endif
 
