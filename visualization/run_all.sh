@@ -5,6 +5,13 @@ SESSION="fuzz_session"
 INPUT_DIR="./in"    
 OUTPUT_DIR="./out"      
 
+codeql database create ./codeqldb --language=cpp --command="afl-clang-lto target.c -o target_normal"
+codeql database analyze ./codeqldb \
+    codeql/cpp-queries:codeql-suites/cpp-security-and-quality.qls \
+    --format=csv \
+    --output=security_results.csv
+python3 extract_targets.py
+
 tmux kill-session -t $SESSION 2>/dev/null
 rm -rf $OUTPUT_DIR
 rm cfg_edges.txt
