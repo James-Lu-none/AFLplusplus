@@ -6,6 +6,7 @@ import os
 from config import (
     CFG_EDGES_FILE, 
     BB_LINES_MAP_FILE,
+    TARGET_BB_MAP_FILE,
     TARGET_PROCESS_NAME, 
     DIST_KV_SHM_NAME, 
     MIN_REFRESH_INTERVAL,
@@ -20,7 +21,7 @@ from core.shm_handler import (
     map_lock,
     dist_shm_ptr
 )
-from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz, load_bb_lines_map
+from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz, load_bb_lines_map, load_target_bb_map
 from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
@@ -69,6 +70,7 @@ def update_live_data(n):
     table_header = [
         html.Thead(html.Tr([
             html.Th("Target", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Target BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Min Dist", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Last BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
@@ -77,10 +79,20 @@ def update_live_data(n):
     ]
 
     rows = []
+    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
+    target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
+    
     for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
         # Show all entries as per user's manual change, but show hit count
         curr_bb = str(entry.last_bb_id)
+        
+        target_bb = target_bb_map.get(i, "N/A")
+        target_bb_info = f"{target_bb}"
+        if target_bb in bb_map:
+            file, start, end = bb_map[target_bb]
+            target_bb_info = f"{file}:{start}-{end} ({target_bb})"
+            
         # Highlight top targets with active seeds in the graph
         if entry.active_count > 0 and i < 5:
             base_style.append({
@@ -96,6 +108,7 @@ def update_live_data(n):
         
         rows.append(html.Tr([
             html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
+            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px'}),
             html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
             html.Td(f"{curr_bb}", style={'padding': '5px'}),
             html.Td(f"{entry.seed_len}", style={'padding': '5px'}),

@@ -26,6 +26,27 @@ def load_bb_lines_map(file_path):
         print(f"Error reading BB map file: {e}")
     return bb_map
 
+def load_target_bb_map(file_path):
+    """
+    Parses target_bb_map.txt and returns a dictionary mapping target_id to bb_id.
+    """
+    target_bb_map = {}
+    if not os.path.exists(file_path):
+        return target_bb_map
+    
+    # Pattern: target_id,%bb_id
+    pattern = re.compile(r"(\d+),%?(\w+)")
+    try:
+        with open(file_path, "r") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    t_id, bb_id = match.groups()
+                    target_bb_map[int(t_id)] = bb_id
+    except Exception as e:
+        print(f"Error reading target BB map file: {e}")
+    return target_bb_map
+
 def load_cfg_data(file_path):
     """
     Parses a CFG edge file and returns elements for Dash Cytoscape.

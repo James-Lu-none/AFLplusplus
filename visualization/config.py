@@ -11,6 +11,7 @@ GRID_DIM_COARSE = GRID_DIM // COARSEN_FACTOR
 # File Paths
 CFG_EDGES_FILE = "cfg_edges.txt"
 BB_LINES_MAP_FILE = "bb_lines_map.txt"
+TARGET_BB_MAP_FILE = "target_bb_map.txt"
 
 # Process/SHM Names
 TARGET_PROCESS_NAME = "target_normal"
