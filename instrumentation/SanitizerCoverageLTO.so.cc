@@ -463,6 +463,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
           if (DILocation *Loc = Inst.getDebugLoc()) {
             if (Loc->getFilename().ends_with(T.filename) &&
                 Loc->getLine() == T.line) {
+              printf("[LTO-BFS] Found target instruction in %s:%d\n", T.filename.c_str(), T.line);
               TargetBB = &BB;
               break;
             }
