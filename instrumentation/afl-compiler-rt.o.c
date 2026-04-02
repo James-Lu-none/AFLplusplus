@@ -3735,15 +3735,11 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
       entry->min_distance = dist;
       entry->last_bb_id = last_bb_id;
       entry->is_active += 1;
-     
-      int fd = open("out/main/.cur_input", O_RDONLY);
-      if (fd >= 0) {
-        ssize_t n = read(fd, entry->seed_content, 512);
-        entry->seed_len = (n > 0) ? (uint32_t)n : 0;
-        close(fd);
-      } else {
-        entry->is_active = 0;
-      }
+      uint32_t len = *__afl_fuzz_len; 
+      uint32_t copy_len = (len > MAX_SEED_SIZE) ? MAX_SEED_SIZE : len;
+
+      memcpy(entry->seed_content, __afl_fuzz_ptr, copy_len);
+      entry->seed_len = copy_len;
     }
   }
 }
