@@ -67,7 +67,7 @@ def create_layout(initial_stylesheet):
                         'display': 'flex', 
                         'flexDirection': 'column',
                         'overflowY': 'auto',
-                        'maxHeight': 'calc(100vh - 100px)',
+                        'maxHeight': '100%',
                         'border': '1px solid #444',
                         'borderRadius': '5px'
                     }, 
