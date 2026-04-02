@@ -544,7 +544,7 @@ We add 4 byte for one u32 length field. */
 /* 距離計算 SHM ID */
 #define MAX_TARGETS 64
 #define MAX_SEED_SIZE 512
-
+#define MAX_PATH_LENGTH 512
 #include <stdint.h>
 struct distance_entry {
   uint32_t target_id;
@@ -553,6 +553,8 @@ struct distance_entry {
   uint32_t seed_len;
   uint32_t is_active;
   uint8_t  seed_content[MAX_SEED_SIZE];
+  uint32_t path_len;
+  uint32_t path[MAX_PATH_LENGTH];
 }__attribute__((packed));
 
 struct shared_dist_kv_store {
