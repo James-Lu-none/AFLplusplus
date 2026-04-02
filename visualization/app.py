@@ -11,7 +11,8 @@ from config import (
     DIST_KV_SHM_NAME, 
     MIN_REFRESH_INTERVAL,
     MAX_TARGETS,
-    DEFAULT_TOP_N
+    DEFAULT_TOP_N,
+    DEFAULT_LLM_THRESHOLD
 )
 from core.models import SharedDistKVStore
 from core.shm_handler import (
@@ -28,10 +29,18 @@ from components.ui_layout import create_layout
 # Initialize Dash app
 app = dash.Dash(__name__)
 
-# Global state for SHM
-# Note: dist_shm_ptr is managed here to avoid circular imports if needed, 
-# although it could also be in shm_handler.
+# Global state for SHM and LLM Timers
 current_dist_shm_ptr = None
+target_timers = [0] * MAX_TARGETS
+prev_active_counts = [0] * MAX_TARGETS
+
+def trigger_llm_call(target_idx, entry, bb_info):
+    """
+    Placeholder for triggering an LLM call when a target is stuck.
+    """
+    print(f"[LLM TRIGGER] Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}")
+    # In a real scenario, you would call your LLM API here.
+    pass
 
 @app.callback(
     Output('refresh-timer', 'interval'),
@@ -47,10 +56,14 @@ def update_refresh_rate(value):
      Output('live-status-info', 'children'),
      Output('coverage-heatmap', 'figure'),
      Output('coverage-stats', 'children')],
-    [Input('refresh-timer', 'n_intervals')]
+    [Input('refresh-timer', 'n_intervals')],
+    [State('llm-threshold-input', 'value')]
 )
-def update_live_data(n):
-    global current_dist_shm_ptr
+def update_live_data(n, llm_threshold):
+    global current_dist_shm_ptr, target_timers, prev_active_counts
+    
+    if llm_threshold is None:
+        llm_threshold = DEFAULT_LLM_THRESHOLD
     
     if not current_dist_shm_ptr:
         current_dist_shm_ptr = get_afl_shm_ptr(TARGET_PROCESS_NAME, DIST_KV_SHM_NAME)
@@ -74,7 +87,7 @@ def update_live_data(n):
             html.Th("Min Dist", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Last BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
-            html.Th("Hit Count", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
+            html.Th("Timer (s)", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
         ]))
     ]
 
@@ -119,13 +132,31 @@ def update_live_data(n):
                 }
             })
         
+        # Timer logic: Reset if active_count increases, else increment
+        if target_bb_info != "N/A": 
+            if entry.active_count > prev_active_counts[i]:
+                target_timers[i] = 0
+                prev_active_counts[i] = entry.active_count
+            else:
+                # Estimate elapsed time based on refresh interval (approx 1s if configured)
+                # Actually we can just increment by 1 if we assume check happens every 1s
+                target_timers[i] += 1
+            
+            if target_timers[i] >= llm_threshold:
+                trigger_llm_call(i, entry, target_bb_info)
+                target_timers[i] = 0
+
         rows.append(html.Tr([
             html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
             html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444', 'wordBreak': 'break-all', 'whiteSpace': 'normal'}),
             html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
             html.Td(f"{curr_bb}", style={'padding': '5px'}),
             html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
-            html.Td(f"{entry.active_count}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#ff4444'})
+            html.Td(f"{target_timers[i]}s", style={
+                'padding': '5px', 
+                'color': '#ff4444' if target_timers[i] > llm_threshold / 2 else '#00ff00',
+                'fontWeight': 'bold' if target_timers[i] > llm_threshold / 2 else 'normal'
+            })
         ]))
 
     if not rows:

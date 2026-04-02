@@ -67,6 +67,16 @@ def create_layout(initial_stylesheet):
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
                                 ),
                                 html.Hr(),
+                                html.Label("LLM Feedback Threshold (sec):", style={'fontSize': '12px'}),
+                                dcc.Input(
+                                    id='llm-threshold-input',
+                                    type='number',
+                                    value=DEFAULT_LLM_THRESHOLD,
+                                    min=1,
+                                    step=1,
+                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
+                                html.Hr(),
                                 html.Label("Visualization Settings", style={'fontSize': '12px'}),
                                 dcc.Checklist(
                                     id='cfg-enabled-toggle',
