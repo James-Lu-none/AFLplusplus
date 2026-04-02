@@ -249,7 +249,11 @@ def update_selected_target(n_clicks_list, current_idx):
         return current_idx
     
     # Identify which target was clicked
-    clicked_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    trigger = ctx.triggered[0]
+    if not trigger['value'] or trigger['value'] == 0:
+        return current_idx
+        
+    clicked_id = trigger['prop_id'].split('.')[0]
     try:
         import json
         clicked_idx = json.loads(clicked_id)['index']
