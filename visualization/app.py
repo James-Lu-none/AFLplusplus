@@ -202,7 +202,7 @@ def update_cfg_elements(top_n, cfg_enabled):
     [Input('cfg-enabled-toggle', 'value')]
 )
 def toggle_cfg_visibility(cfg_enabled):
-    base_style = {'width': '100%', 'height': '750px', 'border': '1px solid #444'}
+    base_style = {'width': '100%', 'height': '100%', 'border': '1px solid #444'}
     if not cfg_enabled or 'enabled' not in cfg_enabled:
         base_style['display'] = 'none'
     return base_style
