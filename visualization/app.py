@@ -2,6 +2,8 @@ import dash
 from dash import Input, Output, State, html
 import dash_cytoscape as cyto
 import os
+from collections import deque
+from datetime import datetime
 
 from config import (
     CFG_EDGES_FILE, 
@@ -29,16 +31,24 @@ from components.ui_layout import create_layout
 # Initialize Dash app
 app = dash.Dash(__name__)
 
-# Global state for SHM and LLM Timers
+# Global state for SHM, LLM Timers, and Logs
 current_dist_shm_ptr = None
 target_timers = [0] * MAX_TARGETS
 prev_active_counts = [0] * MAX_TARGETS
+app_logs = deque(maxlen=100)
+
+def log_message(msg):
+    """Adds a timestamped message to the log buffer."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    app_logs.appendleft(f"[{timestamp}] {msg}")
 
 def trigger_llm_call(target_idx, entry, bb_info):
     """
     Placeholder for triggering an LLM call when a target is stuck.
     """
-    print(f"[LLM TRIGGER] Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}")
+    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}"
+    print(f"[LLM TRIGGER] {msg}")
+    log_message(f"LLM TRIGGER: {msg}")
     # In a real scenario, you would call your LLM API here.
     pass
 
@@ -55,7 +65,8 @@ def update_refresh_rate(value):
     [Output('cfg-graph', 'stylesheet'),
      Output('live-status-info', 'children'),
      Output('coverage-heatmap', 'figure'),
-     Output('coverage-stats', 'children')],
+     Output('coverage-stats', 'children'),
+     Output('log-panel', 'children')],
     [Input('refresh-timer', 'n_intervals')],
     [State('llm-threshold-input', 'value')]
 )
@@ -178,7 +189,9 @@ def update_live_data(n, llm_threshold):
     # Coverage Heatmap
     fig, stats_text = generate_coverage_heatmap(accumulated_map, map_lock)
 
-    return base_style, status_elements, fig, stats_text
+    log_content = [html.Div(log) for log in app_logs]
+
+    return base_style, status_elements, fig, stats_text, log_content
 
 @app.callback(
     Output('node-data-display', 'children'),

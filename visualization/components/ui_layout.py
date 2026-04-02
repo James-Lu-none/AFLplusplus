@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD
 
 def create_layout(initial_stylesheet):
     """
@@ -13,7 +13,7 @@ def create_layout(initial_stylesheet):
             
             html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'height': 'calc(100vh - 80px)', 'overflow': 'hidden'}, children=[
                 # Graph visualization on the left
-                html.Div(id='cfg-graph-container', style={'flex': '1 1 70%', 'minWidth': '0'}, children=[
+                html.Div(id='cfg-graph-container', style={'flex': '1 1 70%', 'minWidth': '0', 'display': 'flex', 'flexDirection': 'column'}, children=[
                     cyto.Cytoscape(
                         id='cfg-graph',
                         elements=[],
@@ -24,6 +24,24 @@ def create_layout(initial_stylesheet):
                         layout={'name': 'preset'},
                         style={'width': '100%', 'height': '100%', 'border': '1px solid #444'},
                         stylesheet=initial_stylesheet
+                    ),
+                    html.Div(
+                        id='log-panel', 
+                        style={
+                            'height': '150px', 
+                            'marginTop': '10px', 
+                            'backgroundColor': '#000', 
+                            'color': '#00ff00', 
+                            'fontFamily': 'monospace', 
+                            'fontSize': '12px', 
+                            'padding': '10px', 
+                            'overflowY': 'auto', 
+                            'border': '1px solid #444',
+                            'borderRadius': '5px',
+                            'whiteSpace': 'pre-wrap',
+                            'resize': 'vertical'
+                        },
+                        children="Monitoring started..."
                     )
                 ]),
                 
