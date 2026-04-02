@@ -119,16 +119,16 @@ def create_layout(initial_stylesheet):
                             ]
                         ),
 
-                        # clicked node info
+                        # clicked target info
                         html.Div(children=[
-                            html.H4("Clicked Node Info"),
+                            html.H4("Clicked Target Info"),
                             html.Div(
-                                id='node-data-display', 
+                                id='target-data-display', 
                                 style={
                                     'wordBreak': 'break-all', 
                                     'fontFamily': 'monospace', 
                                     'fontSize': '12px', 
-                                    'minHeight': '100px'
+                                    'minHeight': '150px'
                                 }
                             ),
                             html.Hr(),
@@ -158,6 +158,7 @@ def create_layout(initial_stylesheet):
                 )
             ]),
             
-            dcc.Interval(id='refresh-timer', interval=DEFAULT_REFRESH_INTERVAL, n_intervals=0)
+            dcc.Interval(id='refresh-timer', interval=DEFAULT_REFRESH_INTERVAL, n_intervals=0),
+            dcc.Store(id='selected-target-idx', data=-1)
         ]
     )

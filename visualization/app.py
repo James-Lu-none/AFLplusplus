@@ -1,5 +1,5 @@
 import dash
-from dash import Input, Output, State, html
+from dash import Input, Output, State, html, ALL
 import dash_cytoscape as cyto
 import os
 from collections import deque
@@ -68,9 +68,10 @@ def update_refresh_rate(value):
      Output('coverage-stats', 'children'),
      Output('log-panel', 'children')],
     [Input('refresh-timer', 'n_intervals')],
-    [State('llm-threshold-input', 'value')]
+    [State('llm-threshold-input', 'value'),
+     State('selected-target-idx', 'data')]
 )
-def update_live_data(n, llm_threshold):
+def update_live_data(n, llm_threshold, selected_idx):
     global current_dist_shm_ptr, target_timers, prev_active_counts
     
     if llm_threshold is None:
@@ -157,18 +158,62 @@ def update_live_data(n, llm_threshold):
                 trigger_llm_call(i, entry, target_bb_info)
                 target_timers[i] = 0
 
-        rows.append(html.Tr([
-            html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
-            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444', 'wordBreak': 'break-all', 'whiteSpace': 'normal'}),
-            html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
-            html.Td(f"{curr_bb}", style={'padding': '5px'}),
-            html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
-            html.Td(f"{target_timers[i]}s", style={
-                'padding': '5px', 
-                'color': '#ff4444' if target_timers[i] > llm_threshold / 2 else '#00ff00',
-                'fontWeight': 'bold' if target_timers[i] > llm_threshold / 2 else 'normal'
-            })
-        ]))
+        # Highlighting for Selected Target and Path
+        if i == selected_idx:
+            # Highlight target BB
+            if target_bb != "N/A":
+                base_style.append({
+                    'selector': f'node[id = "{target_bb}"]',
+                    'style': {
+                        'label': 'TARGET',
+                        'color': '#ffffff',
+                        'font-weight': 'bold',
+                        'font-size': '24px',
+                        'text-outline-color': '#ff4444',
+                        'text-outline-width': '2px',
+                        'background-color': '#ffffff',
+                        'width': '50px',
+                        'height': '50px'
+                    }
+                })
+            
+            # Highlight execution path
+            path = list(entry.path_content[:entry.path_len])
+            for step_idx, bb_id_val in enumerate(path):
+                bb_id = str(bb_id_val)
+                base_style.append({
+                    'selector': f'node[id = "{bb_id}"]',
+                    'style': {
+                        'color': '#fffa00',
+                        'font-weight': 'bold',
+                        'font-size': '18px',
+                        'border-width': '4px',
+                        'border-color': '#fffa00',
+                        'z-index': 9999
+                    }
+                })
+
+        rows.append(html.Tr(
+            id={'type': 'target-row', 'index': i},
+            n_clicks=0,
+            style={
+                'cursor': 'pointer',
+                'backgroundColor': '#333' if i == selected_idx else 'transparent',
+                'borderBottom': '1px solid #444'
+            },
+            children=[
+                html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
+                html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444', 'wordBreak': 'break-all', 'whiteSpace': 'normal'}),
+                html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
+                html.Td(f"{curr_bb}", style={'padding': '5px'}),
+                html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
+                html.Td(f"{target_timers[i]}s", style={
+                    'padding': '5px', 
+                    'color': '#ff4444' if target_timers[i] > llm_threshold / 2 else '#00ff00',
+                    'fontWeight': 'bold' if target_timers[i] > llm_threshold / 2 else 'normal'
+                })
+            ]
+        ))
 
     if not rows:
         status_elements = [html.P("No active targets found.", style={'color': '#888'})]
@@ -194,39 +239,84 @@ def update_live_data(n, llm_threshold):
     return base_style, status_elements, fig, stats_text, log_content
 
 @app.callback(
-    Output('node-data-display', 'children'),
-    [Input('cfg-graph', 'tapNodeData')],
-    [State('refresh-timer', 'n_intervals')]
+    Output('selected-target-idx', 'data'),
+    [Input({'type': 'target-row', 'index': ALL}, 'n_clicks')],
+    [State('selected-target-idx', 'data')]
 )
-def display_node_data(data, n):
+def update_selected_target(n_clicks_list, current_idx):
+    ctx = dash.callback_context
+    if not ctx.triggered or not n_clicks_list:
+        return current_idx
+    
+    # Identify which target was clicked
+    clicked_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    try:
+        import json
+        clicked_idx = json.loads(clicked_id)['index']
+        return clicked_idx
+    except Exception:
+        return current_idx
+
+@app.callback(
+    Output('target-data-display', 'children'),
+    [Input('selected-target-idx', 'data'),
+     Input('refresh-timer', 'n_intervals')]
+)
+def display_target_data(selected_idx, n):
     global current_dist_shm_ptr
-    if not data or not current_dist_shm_ptr:
-        return "Click a node to see if it's the current bottleneck seed."
+    if selected_idx is None or selected_idx < 0 or not current_dist_shm_ptr:
+        return "Click a target row in the table to see execution path and seed details."
     
     try:
         dist_kv = SharedDistKVStore.from_address(current_dist_shm_ptr)
+        entry = dist_kv.entries[selected_idx]
     except Exception:
         return "Error accessing SHM data."
 
-    clicked_bb = data['id']
     bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
+    target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
     
-    source_info = f"BB {clicked_bb}"
-    if clicked_bb in bb_map:
-        file, start, end = bb_map[clicked_bb]
-        source_info = f"{file}:{start}-{end} ({clicked_bb})"
+    target_bb = target_bb_map.get(selected_idx, "N/A")
+    target_info = f"Target {selected_idx}: {target_bb}"
+    if target_bb in bb_map:
+        file, start, end = bb_map[target_bb]
+        target_info = f"Target {selected_idx}: {file}:{start}-{end} ({target_bb})"
 
-    for i in range(MAX_TARGETS):
-        entry = dist_kv.entries[i]
-        if entry.active_count > 0 and str(entry.last_bb_id) == clicked_bb:
-            content = bytes(entry.seed_content[:entry.seed_len])
-            return html.Div([
-                html.P(f"Seed associated with {source_info}:"),
-                html.Code(content.hex(), style={'color': '#ff79c6'}),
-                html.P(f"Seed in ASCII: {content.decode(errors='replace')}", style={'color': '#8be9fd'})
-            ])
-            
-    return f"No active seed stopped at {source_info} currently."
+    seed_content = bytes(entry.seed_content[:entry.seed_len])
+    path = list(entry.path_content[:entry.path_len])
+    
+    path_elements = []
+    for bb_id_val in path:
+        bb_id = str(bb_id_val)
+        if bb_id in bb_map:
+            f, s, e = bb_map[bb_id]
+            path_elements.append(f"{f}:{s}-{e} ({bb_id})")
+        else:
+            path_elements.append(f"BB {bb_id}")
+
+    return html.Div([
+        html.H5(target_info, style={'color': '#ff4444'}),
+        html.P(f"Min Distance: {entry.min_distance}", style={'fontSize': '14px'}),
+        
+        html.B("Execution Path:"),
+        html.Div([
+            html.P(" -> ".join(path_elements) if path_elements else "No path data recorded.", 
+                   style={'color': '#8be9fd', 'fontSize': '11px'})
+        ], style={'maxHeight': '150px', 'overflowY': 'auto', 'marginBottom': '10px'}),
+
+        html.B("Seed Content (Hex):"),
+        html.Code(seed_content.hex(), style={'color': '#ff79c6', 'display': 'block', 'fontSize': '10px'}),
+        html.B("Seed Content (ASCII):"),
+        html.P(seed_content.decode(errors='replace'), style={'color': '#50fa7b', 'fontSize': '11px'})
+    ])
+
+@app.callback(
+    Output('cfg-graph', 'tapNodeData'),
+    [Input('cfg-graph', 'tapNodeData')]
+)
+def reset_node_tap(data):
+    # longer use tapNodeData after using selected-target-idx
+    return data
 
 @app.callback(
     Output('cfg-graph', 'elements'),
