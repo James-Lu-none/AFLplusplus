@@ -121,7 +121,7 @@ def update_live_data(n):
         
         rows.append(html.Tr([
             html.Td(f"T{i}", style={'padding': '5px', 'color': '#00ff00' if entry.active_count > 0 else '#888'}),
-            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444'}),
+            html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444', 'wordBreak': 'break-all', 'whiteSpace': 'normal'}),
             html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
             html.Td(f"{curr_bb}", style={'padding': '5px'}),
             html.Td(f"{entry.seed_len}", style={'padding': '5px'}),

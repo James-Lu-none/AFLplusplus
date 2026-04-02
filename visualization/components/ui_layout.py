@@ -11,9 +11,9 @@ def create_layout(initial_stylesheet):
         children=[
             html.H2("AFL++ LLM-Guided Fuzzing Monitor", style={'textAlign': 'center'}),
             
-            html.Div(style={'display': 'flex'}, children=[
+            html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'overflow': 'hidden'}, children=[
                 # Graph visualization on the left
-                html.Div(id='cfg-graph-container', style={'width': '70%'}, children=[
+                html.Div(id='cfg-graph-container', style={'flex': '1 1 70%', 'minWidth': '0'}, children=[
                     cyto.Cytoscape(
                         id='cfg-graph',
                         elements=[],
@@ -30,12 +30,16 @@ def create_layout(initial_stylesheet):
                 # Live status and node info on the right
                 html.Div(
                     style={
-                        'width': '30%', 
+                        'flex': '0 0 30%', 
+                        'minWidth': '350px',
                         'padding': '10px', 
                         'backgroundColor': '#1e1e1e', 
-                        'marginLeft': '10px', 
                         'display': 'flex', 
-                        'flexDirection': 'column'
+                        'flexDirection': 'column',
+                        'overflowY': 'auto',
+                        'maxHeight': 'calc(100vh - 100px)',
+                        'border': '1px solid #444',
+                        'borderRadius': '5px'
                     }, 
                     children=[
                         # refresh settings panel at the top
