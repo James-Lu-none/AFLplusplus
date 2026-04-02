@@ -286,7 +286,11 @@ __thread u32 __afl_prev_ctx;
 struct cmp_map *__afl_cmp_map;
 struct cmp_map *__afl_cmp_map_backup;
 
+#ifdef custom_instrumentation
 struct shared_dist_kv_store *__afl_dist_shm;
+uint32_t __afl_global_path_idx;
+uint32_t __afl_global_path_buffer[MAX_PATH_LENGTH];
+#endif
 
 static u8 __afl_cmplog_max_len = 32;  // 16-32
 
@@ -1459,7 +1463,10 @@ int __afl_persistent_loop(unsigned int max_cnt) {
     return 1;
 
   } else if (--cycle_cnt) {
-
+    #ifdef custom_instrumentation
+    // reset path index for custom instrumentation on each iteration
+    __afl_global_path_idx = 0;
+    #endif
 #ifdef AFL_PERSISTENT_RECORD
     if (unlikely(is_replay_record)) {
 
@@ -3723,21 +3730,31 @@ uint32_t ijon_memdist(char *a, char *b, size_t len) {
 #ifdef custom_instrumentation
 void __afl_report_target_batch(uint32_t count, uint32_t *data) {
   if (!__afl_dist_shm) return;
+  
+  uint32_t current_bb_id = data[2];
+  if (__afl_global_path_idx < MAX_PATH_LENGTH) {
+    __afl_global_path_buffer[__afl_global_path_idx++] = current_bb_id;
+  }
 
   for (uint32_t i = 0; i < count; i++) {
     uint32_t id = data[i * 3];
     uint32_t dist = data[i * 3 + 1];
-    uint32_t last_bb_id = data[i * 3 + 2];
+    // uint32_t last_bb_id = data[i * 3 + 2]; // all last_bb_id are the same in the batch, so just use current_bb_id
 
     struct distance_entry *entry = &__afl_dist_shm->entries[id];
     if (dist < entry->min_distance) {
       entry->target_id = id;
       entry->min_distance = dist;
-      entry->last_bb_id = last_bb_id;
+      entry->last_bb_id = current_bb_id;
       entry->is_active += 1;
-      uint32_t len = *__afl_fuzz_len; 
-      uint32_t copy_len = (len > MAX_SEED_SIZE) ? MAX_SEED_SIZE : len;
-
+      
+      // save path and path length
+      uint32_t copy_cnt = (__afl_global_path_idx > MAX_PATH_LENGTH) ? MAX_PATH_LENGTH : __afl_global_path_idx;
+      memcpy(entry->path, __afl_global_path_buffer, copy_cnt * sizeof(uint32_t));
+      entry->path_len = copy_cnt;
+      
+      // save seed content and seed length
+      uint32_t copy_len = (*__afl_fuzz_len > MAX_SEED_SIZE) ? MAX_SEED_SIZE : *__afl_fuzz_len;
       memcpy(entry->seed_content, __afl_fuzz_ptr, copy_len);
       entry->seed_len = copy_len;
     }
