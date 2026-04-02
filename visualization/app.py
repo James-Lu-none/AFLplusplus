@@ -177,10 +177,11 @@ def update_live_data(n, llm_threshold, selected_idx):
                     }
                 })
             
-            # Highlight execution path
+            # Highlight execution path (nodes and edges)
             path = list(entry.path_content[:entry.path_len])
-            for step_idx, bb_id_val in enumerate(path):
+            for i_path, bb_id_val in enumerate(path):
                 bb_id = str(bb_id_val)
+                # Node highlight
                 base_style.append({
                     'selector': f'node[id = "{bb_id}"]',
                     'style': {
@@ -192,6 +193,20 @@ def update_live_data(n, llm_threshold, selected_idx):
                         'z-index': 9999
                     }
                 })
+                # Edge highlight (between current and next)
+                if i_path < len(path) - 1:
+                    next_bb_id = str(path[i_path + 1])
+                    base_style.append({
+                        'selector': f'edge[source = "{bb_id}"][target = "{next_bb_id}"]',
+                        'style': {
+                            'line-color': '#fffa00',
+                            'width': '6px',
+                            'line-style': 'solid',
+                            'target-arrow-color': '#fffa00',
+                            'target-arrow-shape': 'triangle',
+                            'z-index': 9998
+                        }
+                    })
 
         rows.append(html.Tr(
             id={'type': 'target-row', 'index': i},
