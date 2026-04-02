@@ -14,22 +14,36 @@ def create_layout(initial_stylesheet):
             html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'height': 'calc(100vh - 80px)', 'overflow': 'hidden'}, children=[
                 # Graph visualization on the left
                 html.Div(id='cfg-graph-container', style={'flex': '1 1 70%', 'minWidth': '0', 'display': 'flex', 'flexDirection': 'column'}, children=[
-                    cyto.Cytoscape(
-                        id='cfg-graph',
-                        elements=[],
-                        autoungrabify=True,
-                        autolock=True,
-                        userZoomingEnabled=True,
-                        userPanningEnabled=True,
-                        layout={'name': 'preset'},
-                        style={'width': '100%', 'height': '100%', 'border': '1px solid #444'},
-                        stylesheet=initial_stylesheet
+                    # Wrapper for the graph to make it resizable from the bottom
+                    html.Div(
+                        style={
+                            'flex': '0 0 auto', 
+                            'height': '70%', 
+                            'minHeight': '100px', 
+                            'resize': 'vertical', 
+                            'overflow': 'hidden',
+                            'borderBottom': '2px solid #444',
+                            'paddingBottom': '2px'
+                        },
+                        children=[
+                            cyto.Cytoscape(
+                                id='cfg-graph',
+                                elements=[],
+                                autoungrabify=True,
+                                autolock=True,
+                                userZoomingEnabled=True,
+                                userPanningEnabled=True,
+                                layout={'name': 'preset'},
+                                style={'width': '100%', 'height': '100%', 'border': 'none'},
+                                stylesheet=initial_stylesheet
+                            ),
+                        ]
                     ),
+                    # Log panel fills the rest and stays at bottom
                     html.Div(
                         id='log-panel', 
                         style={
-                            'height': '150px', 
-                            'marginTop': '10px', 
+                            'flex': '1', 
                             'backgroundColor': '#000', 
                             'color': '#00ff00', 
                             'fontFamily': 'monospace', 
@@ -37,9 +51,9 @@ def create_layout(initial_stylesheet):
                             'padding': '10px', 
                             'overflowY': 'auto', 
                             'border': '1px solid #444',
-                            'borderRadius': '5px',
-                            'whiteSpace': 'pre-wrap',
-                            'resize': 'vertical'
+                            'borderTop': 'none',
+                            'borderRadius': '0 0 5px 5px',
+                            'whiteSpace': 'pre-wrap'
                         },
                         children="Monitoring started..."
                     )
