@@ -119,11 +119,8 @@ def create_layout(initial_stylesheet):
                             ]
                         ),
 
-                        # live status display
+                        # clicked node info
                         html.Div(children=[
-                            html.H3("Live Status"),
-                            html.Div(id='live-status-info'),
-                            html.Hr(),
                             html.H4("Clicked Node Info"),
                             html.Div(
                                 id='node-data-display', 
@@ -134,6 +131,14 @@ def create_layout(initial_stylesheet):
                                     'minHeight': '100px'
                                 }
                             ),
+                            html.Hr(),
+                        ]),
+
+                        # live status display
+                        html.Div(children=[
+                            html.H3("Live Status"),
+                            html.Div(id='live-status-info'),
+                            html.Hr(),
                         ]),
                         
                         # coverage heatmap visualization at the bottom

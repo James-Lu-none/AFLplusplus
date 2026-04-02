@@ -117,7 +117,7 @@ def update_live_data(n, llm_threshold):
             file, start, end = bb_map[target_bb]
             target_bb_info = f"{file}:{start}-{end} ({target_bb})"
             
-        # Highlight target BBs in the graph as red
+        # make target BBs red in the graph
         if target_bb != "N/A":
             base_style.append({
                 'selector': f'node[id = "{target_bb}"]',
@@ -130,8 +130,8 @@ def update_live_data(n, llm_threshold):
                 }
             })
 
-        # Highlight top targets with active seeds in the graph
-        if entry.active_count > 0 and i < 5:
+        # make targets last BBs yellow in the graph
+        if entry.active_count > 0:
             base_style.append({
                 'selector': f'node[id = "{curr_bb}"]',
                 'style': {
