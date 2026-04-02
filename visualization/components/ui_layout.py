@@ -9,9 +9,7 @@ def create_layout(initial_stylesheet):
     return html.Div(
         style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px'},
         children=[
-            html.H2("AFL++ LLM-Guided Fuzzing Monitor", style={'textAlign': 'center'}),
-            
-            html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'height': 'calc(100vh - 80px)', 'overflow': 'hidden'}, children=[
+            html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'height': '100%', 'overflow': 'hidden'}, children=[
                 # Graph visualization on the left
                 html.Div(id='cfg-graph-container', style={'flex': '1 1 70%', 'minWidth': '0', 'display': 'flex', 'flexDirection': 'column'}, children=[
                     # Wrapper for the graph to make it resizable from the bottom
