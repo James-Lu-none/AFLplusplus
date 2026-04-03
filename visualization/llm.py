@@ -41,6 +41,43 @@ def get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5):
         lines = f.readlines()
         return '\n'.join(lines[max(1, start-range_size):min(len(lines), end+range_size)])
 
+import re
+import binascii
+
+def extract_and_convert_hex(llm_output):
+    pattern = r"<SEED>(.*?)</SEED>|#### Proposed New Seed \(Hex\):\s+```\s*(.*?)\s*```"
+    match = re.search(pattern, llm_output, re.DOTALL | re.IGNORECASE)
+    
+    if match:
+        hex_str = (match.group(1) or match.group(2)).strip().replace(" ", "").replace("\n", "")
+        
+        try:
+            seed_bytes = binascii.unhexlify(hex_str)
+            return seed_bytes
+        except binascii.Error as e:
+            log_message(f"Hex format error: {e}")
+            return None
+    else:
+        fallback_pattern = r"[0-9a-fA-F]{10,}"
+        matches = re.findall(fallback_pattern, llm_output)
+        if matches:
+            try:
+                return binascii.unhexlify(matches[-1])
+            except:
+                log_message("Failed to convert fallback hex string to bytes.")
+                pass
+    
+    return None
+    
+def save_llm_seed(new_seed_content, output_dir, seed_id):
+    llm_queue_dir = os.path.join(output_dir, "llm_node", "queue")
+    os.makedirs(llm_queue_dir, exist_ok=True)
+    file_name = f"id:{seed_id:06d},src:000000,op:llm_gen"
+    file_path = os.path.join(llm_queue_dir, file_name)
+    with open(file_path, "wb") as f:
+        f.write(new_seed_content)
+    log_message(f"Seed injected to {file_path}")
+
 def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     """
     Triggers an LLM call when a target is stuck in a thread-safe manner.
@@ -77,7 +114,7 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     source code of last 5 basic blocks in path:
     {code_snippet}
     
-    now please provide a new seed in hex format
+    now Please provide the final generated seed strictly enclosed within <SEED> and </SEED> tags. Do not include spaces in the hex string.
     """
     try:
         if not endpoint:
@@ -92,6 +129,9 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
         log_message(f"LLM Request prompt for Target {target_idx}:\n {prompt}")
         if 'response' in response:
             log_message(f"LLM Response received for Target {target_idx}:\n {response['response']}")
+            # transform response from hex format to bytes
+            new_seed_content = extract_and_convert_hex(response['response'])
+            save_llm_seed(new_seed_content, os.getenv("AFL_OUT_DIR"), target_idx)
         else:
             log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
