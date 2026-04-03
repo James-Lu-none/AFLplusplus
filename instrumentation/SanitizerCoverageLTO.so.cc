@@ -492,9 +492,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
                 fprintf(stderr, "[LTO-BFS] Checking BB in file %s with line range %u-%u against target line %u\n",
                         bbFile.str().c_str(), range.minLine, range.maxLine, T.lineStart);
                 if (T.lineStart >= range.minLine && T.lineStart <= range.maxLine) {
-                  std::string bbName;
-                  llvm::raw_string_ostream rso(bbName);
-                  BB.printAsOperand(rso, false);
+                  std::string bbName = getValueName(&BB);
 
                   if (targetMapFile.is_open()) {
                     targetMapFile << T.id << "," << bbName << "\n";
@@ -1526,6 +1524,32 @@ Function *returnOnlyCaller(Function *F) {
 
 }
 
+#ifdef custom_instrumentation
+// transform Value to string
+std::string getValueName(Value *V) {
+    if (V->hasName()) return V->getName().str();
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    V->printAsOperand(rso, false);
+    return name;
+}
+
+// transform CmpInst predicate to string
+std::string getPredicateStr(CmpInst *Cmp) {
+    std::string pred;
+    switch (Cmp->getPredicate()) {
+        case CmpInst::ICMP_EQ:  case CmpInst::FCMP_OEQ: pred = "=="; break;
+        case CmpInst::ICMP_NE:  case CmpInst::FCMP_ONE: pred = "!="; break;
+        case CmpInst::ICMP_SGT: case CmpInst::ICMP_UGT: case CmpInst::FCMP_OGT: pred = ">"; break;
+        case CmpInst::ICMP_SGE: case CmpInst::ICMP_UGE: case CmpInst::FCMP_OGE: pred = ">="; break;
+        case CmpInst::ICMP_SLT: case CmpInst::ICMP_ULT: case CmpInst::FCMP_OLT: pred = "<"; break;
+        case CmpInst::ICMP_SLE: case CmpInst::ICMP_ULE: case CmpInst::FCMP_OLE: pred = "<="; break;
+        default: pred = "cmp"; break;
+    }
+    return getValueName(Cmp->getOperand(0)) + " " + pred + " " + getValueName(Cmp->getOperand(1));
+}
+#endif
+
 void ModuleSanitizerCoverageLTO::instrumentFunction(
     Function &F, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
@@ -2270,9 +2294,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
         }
     }
 
-    std::string bbName;
-    llvm::raw_string_ostream rso(bbName);
-    BB.printAsOperand(rso, false);
+    std::string bbName = getValueName(&BB);
 
     std::ofstream bbFile("bb_lines_map.txt", std::ios::app);
     if (bbFile.is_open()) {
@@ -2365,9 +2387,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
         // 建立一個常數陣列包含 [ID0, Dist0, ID1, Dist1, ...]
         std::vector<Constant *> ArrayElems;
         for (auto &p : TargetList) {
-          std::string              bbName;
-          llvm::raw_string_ostream rso(bbName);
-          BB.printAsOperand(rso, false);
+          std::string bbName = getValueName(&BB);
           uint32_t bbNum = 0;
           if (!bbName.empty() && bbName[0] == '%') {
             llvm::StringRef idPart(bbName.c_str() + 1);
