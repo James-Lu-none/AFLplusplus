@@ -62,7 +62,7 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN apt-get -y install --no-install-recommends \
     graphviz 
-RUN pip install dash dash-cytoscape plotly numpy networkx pydot
+RUN pip install dash dash-cytoscape plotly numpy networkx pydot ollama openai
 RUN rm -rf /var/lib/apt/lists/*
 
 # Install CodeQL CLI and set up environment for CodeQL analysis
@@ -117,3 +117,7 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
 
 WORKDIR /workspace
 COPY visualization/ .
+
+# add SOURCE_CODE_PATH environment variable for python scripts to locate the source code
+# for visualization demo, source code is located at /workspace
+ENV SOURCE_CODE_PATH=/workspace
