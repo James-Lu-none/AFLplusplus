@@ -73,7 +73,7 @@ def update_all_settings(n_clicks, interval, top_n, llm_threshold, llm_endpoint, 
             return int(float(val))
         except (ValueError, TypeError):
             return default
-
+    log_message(f"Update Button Clicked")
     # Handle initial call (prevent logging and syncing on start)
     if not n_clicks:
         # Load initial CFG elements with default top_n
