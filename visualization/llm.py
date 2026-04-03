@@ -59,14 +59,15 @@ def trigger_llm_call(target_idx, entry, bb_info):
         code_snippet.append(f"BB {bb_id}: {get_bb_source_code(bb_id, bb_map, source_code_path)}")
     code_snippet = '\n'.join(code_snippet)
 
+    seed_content = bytes(entry.seed_content[:entry.seed_len])
     # construct prompt from seed, cfg, and bb_info
     prompt = f"""
     You are a expert in fuzzing and program analysis. please analyze the following information and suggest a new seed that might help the fuzzer reach new paths.
     
     current basic block ID: {entry.last_bb_id}
     current basic block info: {bb_info}
-    current seed: {entry.seed_content}
-    current seed_hex: {entry.seed_content.hex()}
+    current seed: {seed_content}
+    current seed_hex: {seed_content.hex()}
 
     source code of last 5 basic blocks in path:
     {code_snippet}
