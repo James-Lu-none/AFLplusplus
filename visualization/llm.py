@@ -25,7 +25,7 @@ def load_bb_lines_map():
                 continue
     return bb_map
 
-def get_bb_source_code(bb_id, bb_map, source_code_path):
+def get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5):
     if bb_id not in bb_map:
         return f"No trace info for BB {bb_id}"
     file, start, end = bb_map[bb_id]
@@ -39,7 +39,7 @@ def get_bb_source_code(bb_id, bb_map, source_code_path):
         return f"Source file {file} not found"
     with open(file, 'r') as f:
         lines = f.readlines()
-        return ''.join(lines[start-1:end])
+        return '\n'.join(lines[max(1, start-range_size):min(len(lines), end+range_size)])
 
 def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     """
@@ -62,7 +62,7 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     code_snippet = []
     # use the snapshotted path_content
     for bb_id in path_content[:5]:
-        code_snippet.append(f"BB {bb_id}: {get_bb_source_code(bb_id, bb_map, source_code_path)}")
+        code_snippet.append(f"BB {bb_id}:\n{get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5)}")
     code_snippet = '\n'.join(code_snippet)
 
     # construct prompt from seed, cfg, and bb_info
@@ -76,8 +76,6 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
 
     source code of last 5 basic blocks in path:
     {code_snippet}
-
-    current stucked condition: 
     
     now please provide a new seed in hex format
     """
