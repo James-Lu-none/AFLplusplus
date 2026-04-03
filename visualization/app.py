@@ -44,47 +44,12 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
-            body {
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: hidden;
-                background-color: #121212;
-            }
-            * {
-                box-sizing: border-box;
-            }
-            .rc-slider-tooltip {
-                display: none !important;
-            }
-            .rc-slider-mark-text {
-                color: #ffffff !important;
-                font-size: 11px !important;
-                top: 20px !important;
-            }
-            .rc-slider-mark-text-active {
-                color: #8a7aff !important;
-                font-weight: bold;
-            }
-            .rc-slider-rail {
-                background-color: #333 !important;
-                height: 4px !important;
-            }
-            .rc-slider-track {
-                background-color: #6a5acd !important;
-                height: 4px !important;
-            }
-            .rc-slider-handle {
-                background-color: #6a5acd !important;
-                border: solid 2px #6a5acd !important;
-                width: 14px !important;
-                height: 14px !important;
-                margin-top: -5px !important;
-            }
-            .rc-slider-handle:hover, .rc-slider-handle:active {
-                border-color: #8a7aff !important;
-                background-color: #8a7aff !important;
-                box-shadow: 0 0 5px #6a5acd !important;
-            }
+            body { margin: 0; background-color: #121212; color: white; font-family: sans-serif; }
+            .rc-slider-tooltip { display: none !important; }
+            .rc-slider-rail { background-color: #333 !important; }
+            .rc-slider-track { background-color: #6a5acd !important; }
+            .rc-slider-handle { background-color: #6a5acd !important; border: 2px solid #6a5acd !important; }
+            .rc-slider-mark-text { color: #888 !important; font-size: 10px !important; }
         </style>
     </head>
     <body>
@@ -102,6 +67,27 @@ app.index_string = '''
 current_dist_shm_ptr = None
 target_timers = [0] * MAX_TARGETS
 prev_active_counts = [0] * MAX_TARGETS
+
+@app.callback(
+    Output('interval-display', 'children'),
+    Input('interval-setting', 'value')
+)
+def update_interval_display(val):
+    return f"{val} ms"
+
+@app.callback(
+    Output('top-n-display', 'children'),
+    Input('top-n-input', 'value')
+)
+def update_top_n_display(val):
+    return val
+
+@app.callback(
+    Output('llm-threshold-display', 'children'),
+    Input('llm-threshold-input', 'value')
+)
+def update_llm_display(val):
+    return f"{val} s"
 
 @app.callback(
     Output('refresh-timer', 'interval'),

@@ -6,6 +6,18 @@ def create_layout(initial_stylesheet):
     """
     Creates the main Dash layout.
     """
+    def slider_row(label, slider_id, display_id, min_val, max_val, step, default):
+        return html.Div(style={'marginBottom': '20px'}, children=[
+            html.Div(style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}, children=[
+                html.Label(label, style={'fontSize': '12px', 'color': '#bbb'}),
+                html.Span(id=display_id, style={'color': '#00ff00', 'fontWeight': 'bold', 'fontSize': '14px', 'fontFamily': 'monospace'})
+            ]),
+            dcc.Slider(
+                id=slider_id, min=min_val, max=max_val, step=step, value=default,
+                marks={i: str(i) for i in range(min_val, max_val + 1, step)}, updatemode='drag'
+            )
+        ])
+    
     return html.Div(
         style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px', 'boxSizing': 'border-box', 'margin': '0', 'overflow': 'hidden'},
         children=[
@@ -76,63 +88,22 @@ def create_layout(initial_stylesheet):
                         html.Div(
                             style={'padding': '10px', 'border': '1px solid #444', 'marginBottom': '10px'}, 
                             children=[
-                                html.H4("Refresh Settings"),
-                                html.Label("Refresh Interval (ms):", style={'fontSize': '12px'}),
-                                dcc.Slider(
-                                    id='interval-setting',
-                                    min=MIN_REFRESH_INTERVAL,
-                                    max=5000,
-                                    step=500,
-                                    value=DEFAULT_REFRESH_INTERVAL,
-                                    marks={i: str(i) for i in range(500, 5001, 1000)},
-                                    updatemode='drag'
+                                html.H4("Refresh Settings", style={'marginTop': '0'}),
+        
+                                slider_row(
+                                    "Refresh Interval (ms):", "interval-setting", "interval-display", 
+                                    500, 5000, 500, 1000
                                 ),
-                                html.Hr(),
-                                html.Label("Filter Top N Nodes (Degree):", style={'fontSize': '12px'}),
-                                dcc.Slider(
-                                    id='top-n-input',
-                                    min=0,
-                                    max=MAX_TARGETS,
-                                    step=1,
-                                    value=DEFAULT_TOP_N,
-                                    marks={i: str(i) for i in range(0, 65, 16)},
-                                    updatemode='drag'
+                                
+                                slider_row(
+                                    "Filter Top N Nodes (0 = All):", "top-n-input", "top-n-display", 
+                                    0, 1000, 5, 10
                                 ),
-                                html.Hr(),
-                                html.Label("LLM Feedback Threshold (sec):", style={'fontSize': '12px'}),
-                                dcc.Slider(
-                                    id='llm-threshold-input',
-                                    min=MIN_LLM_THRESHOLD,
-                                    max=300,
-                                    step=10,
-                                    value=DEFAULT_LLM_THRESHOLD,
-                                    marks={i: str(i) for i in range(MIN_LLM_THRESHOLD, 301, 60)},
-                                    updatemode='drag'
+                                
+                                slider_row(
+                                    "LLM Feedback Threshold (sec):", "llm-threshold-input", "llm-threshold-display", 
+                                    1, 3600, 1, 60
                                 ),
-                                html.Hr(),
-                                html.Label("LLM Endpoint:", style={'fontSize': '12px'}),
-                                dcc.Input(
-                                    id='llm-endpoint-input',
-                                    type='text',
-                                    value=DEFAULT_LLM_ENDPOINT,
-                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
-                                ),
-                                html.Hr(),
-                                html.Label("LLM Model:", style={'fontSize': '12px'}),
-                                dcc.Input(
-                                    id='llm-model-input',
-                                    type='text',
-                                    value=DEFAULT_LLM_MODEL,
-                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
-                                ),
-                                html.Hr(),
-                                html.Label("Visualization Settings", style={'fontSize': '12px'}),
-                                dcc.Checklist(
-                                    id='cfg-enabled-toggle',
-                                    options=[{'label': ' Enable CFG Graph', 'value': 'enabled'}],
-                                    value=['enabled'] if DEFAULT_CFG_ENABLED else [],
-                                    style={'fontSize': '14px', 'marginTop': '5px'}
-                                )
                             ]
                         ),
 
