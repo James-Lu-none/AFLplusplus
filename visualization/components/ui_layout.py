@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, MIN_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, MIN_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL, MAX_TARGETS
 
 def create_layout(initial_stylesheet):
     """
@@ -78,33 +78,39 @@ def create_layout(initial_stylesheet):
                             children=[
                                 html.H4("Refresh Settings"),
                                 html.Label("Refresh Interval (ms):", style={'fontSize': '12px'}),
-                                dcc.Input(
+                                dcc.Slider(
                                     id='interval-setting',
-                                    type='number',
-                                    value=DEFAULT_REFRESH_INTERVAL,
                                     min=MIN_REFRESH_INTERVAL,
-                                    step=1000,
-                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                    max=5000,
+                                    step=500,
+                                    value=DEFAULT_REFRESH_INTERVAL,
+                                    marks={i: str(i) for i in range(500, 5001, 1000)},
+                                    tooltip={'placement': 'bottom', 'always_visible': True},
+                                    updatemode='drag'
                                 ),
                                 html.Hr(),
                                 html.Label("Filter Top N Nodes (Degree):", style={'fontSize': '12px'}),
-                                dcc.Input(
+                                dcc.Slider(
                                     id='top-n-input',
-                                    type='number',
-                                    value=DEFAULT_TOP_N,
                                     min=0,
+                                    max=MAX_TARGETS,
                                     step=1,
-                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                    value=DEFAULT_TOP_N,
+                                    marks={i: str(i) for i in range(0, 65, 16)},
+                                    tooltip={'placement': 'bottom', 'always_visible': True},
+                                    updatemode='drag'
                                 ),
                                 html.Hr(),
                                 html.Label("LLM Feedback Threshold (sec):", style={'fontSize': '12px'}),
-                                dcc.Input(
+                                dcc.Slider(
                                     id='llm-threshold-input',
-                                    type='number',
-                                    value=DEFAULT_LLM_THRESHOLD,
                                     min=MIN_LLM_THRESHOLD,
-                                    step=1,
-                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                    max=300,
+                                    step=10,
+                                    value=DEFAULT_LLM_THRESHOLD,
+                                    marks={i: str(i) for i in range(MIN_LLM_THRESHOLD, 301, 60)},
+                                    tooltip={'placement': 'bottom', 'always_visible': True},
+                                    updatemode='drag'
                                 ),
                                 html.Hr(),
                                 html.Label("LLM Endpoint:", style={'fontSize': '12px'}),
