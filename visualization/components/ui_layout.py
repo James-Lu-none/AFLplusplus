@@ -85,7 +85,6 @@ def create_layout(initial_stylesheet):
                                     step=500,
                                     value=DEFAULT_REFRESH_INTERVAL,
                                     marks={i: str(i) for i in range(500, 5001, 1000)},
-                                    tooltip={'placement': 'bottom', 'always_visible': True},
                                     updatemode='drag'
                                 ),
                                 html.Hr(),
@@ -97,7 +96,6 @@ def create_layout(initial_stylesheet):
                                     step=1,
                                     value=DEFAULT_TOP_N,
                                     marks={i: str(i) for i in range(0, 65, 16)},
-                                    tooltip={'placement': 'bottom', 'always_visible': True},
                                     updatemode='drag'
                                 ),
                                 html.Hr(),
@@ -109,7 +107,6 @@ def create_layout(initial_stylesheet):
                                     step=10,
                                     value=DEFAULT_LLM_THRESHOLD,
                                     marks={i: str(i) for i in range(MIN_LLM_THRESHOLD, 301, 60)},
-                                    tooltip={'placement': 'bottom', 'always_visible': True},
                                     updatemode='drag'
                                 ),
                                 html.Hr(),

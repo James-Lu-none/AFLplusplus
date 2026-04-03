@@ -48,9 +48,42 @@ app.index_string = '''
                 margin: 0 !important;
                 padding: 0 !important;
                 overflow: hidden;
+                background-color: #121212;
             }
             * {
                 box-sizing: border-box;
+            }
+            .rc-slider-tooltip {
+                display: none !important;
+            }
+            .rc-slider-mark-text {
+                color: #ffffff !important;
+                font-size: 11px !important;
+                top: 20px !important;
+            }
+            .rc-slider-mark-text-active {
+                color: #8a7aff !important;
+                font-weight: bold;
+            }
+            .rc-slider-rail {
+                background-color: #333 !important;
+                height: 4px !important;
+            }
+            .rc-slider-track {
+                background-color: #6a5acd !important;
+                height: 4px !important;
+            }
+            .rc-slider-handle {
+                background-color: #6a5acd !important;
+                border: solid 2px #6a5acd !important;
+                width: 14px !important;
+                height: 14px !important;
+                margin-top: -5px !important;
+            }
+            .rc-slider-handle:hover, .rc-slider-handle:active {
+                border-color: #8a7aff !important;
+                background-color: #8a7aff !important;
+                box-shadow: 0 0 5px #6a5acd !important;
             }
         </style>
     </head>
