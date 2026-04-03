@@ -155,6 +155,7 @@ def update_live_data(n, selected_idx):
             html.Th("Target BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Min Dist", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Last BB", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
+            html.Th("Path Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Seed Len", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'}),
             html.Th("Timer (s)", style={'textAlign': 'left', 'padding': '5px', 'borderBottom': '1px solid #444'})
         ]))
@@ -268,6 +269,7 @@ def update_live_data(n, selected_idx):
                 html.Td(f"{target_bb_info}", style={'padding': '5px', 'fontSize': '10px', 'color': '#ff4444', 'wordBreak': 'break-all', 'whiteSpace': 'normal'}),
                 html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
                 html.Td(f"{curr_bb}", style={'padding': '5px'}),
+                html.Td(f"{entry.path_len}", style={'padding': '5px'}),
                 html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
                 html.Td(f"{timer_val}s", style={
                     'padding': '5px', 
