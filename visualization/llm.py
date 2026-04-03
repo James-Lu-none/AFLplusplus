@@ -9,21 +9,33 @@ def load_bb_lines_map():
             line = line.strip()
             if not line:
                 continue
-            bb_id, file, start, end = line.split(",")
+            parts = line.split(",")
+            if len(parts) < 4:
+                continue
+            bb_id, file, start, end = parts
             # remove % from bb_id
             bb_id = bb_id.replace('%', '')
-            bb_id_val = int(bb_id)
-            start_line = int(start)
-            end_line = int(end)
-            bb_map[bb_id_val] = (file, start_line, end_line)
+            try:
+                bb_id_val = int(bb_id)
+                start_line = int(start)
+                end_line = int(end)
+                bb_map[bb_id_val] = (file, start_line, end_line)
+            except ValueError:
+                continue
     return bb_map
 
 def get_bb_source_code(bb_id, bb_map, source_code_path):
+    if bb_id not in bb_map:
+        return f"No trace info for BB {bb_id}"
     file, start, end = bb_map[bb_id]
+    found = False
     for root, dirs, files in os.walk(source_code_path):
         if file in files:
             file = os.path.join(root, file)
+            found = True
             break
+    if not found or not os.path.exists(file):
+        return f"Source file {file} not found"
     with open(file, 'r') as f:
         lines = f.readlines()
         return ''.join(lines[start-1:end])
@@ -56,7 +68,7 @@ def trigger_llm_call(target_idx, entry, bb_info):
     current seed: {entry.seed_content}
     current seed_hex: {entry.seed_content.hex()}
 
-    source code of last 3 basic blocks in path:
+    source code of last 5 basic blocks in path:
     {code_snippet}
 
     current stucked condition: 
