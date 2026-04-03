@@ -1,0 +1,68 @@
+import os
+from ollama import Client
+from config import BB_LINES_MAP_FILE
+
+def load_bb_lines_map():
+    with open(BB_LINES_MAP_FILE, 'r') as f:
+        bb_map = {}
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            bb_id, file, start, end = line.split(",")
+            # remove % from bb_id
+            bb_id = bb_id.replace('%', '')
+            bb_id_val = int(bb_id)
+            start_line = int(start)
+            end_line = int(end)
+            bb_map[bb_id_val] = (file, start_line, end_line)
+    return bb_map
+
+def get_bb_source_code(bb_id, bb_map, source_code_path):
+    file, start, end = bb_map[bb_id]
+    for root, dirs, files in os.walk(source_code_path):
+        if file in files:
+            file = os.path.join(root, file)
+            break
+    with open(file, 'r') as f:
+        lines = f.readlines()
+        return ''.join(lines[start-1:end])
+
+def trigger_llm_call(target_idx, entry, bb_info):
+    """
+    Placeholder for triggering an LLM call when a target is stuck.
+    """
+    from app import log_message
+    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}"
+    print(f"[LLM TRIGGER] {msg}")
+    log_message(f"LLM TRIGGER: {msg}")
+    source_code_path = os.getenv("SOURCE_CODE_PATH")
+    if source_code_path is None:
+        log_message("SOURCE_CODE_PATH is not set.")
+        return
+    # get source code snippet for last 5 basic blocks in path
+    bb_map = load_bb_lines_map()
+    code_snippet = []
+    for bb_id in entry.path_content[:5]:
+        code_snippet.append(f"BB {bb_id}: {get_bb_source_code(bb_id, bb_map, source_code_path)}")
+    code_snippet = '\n'.join(code_snippet)
+
+    # construct prompt from seed, cfg, and bb_info
+    prompt = f"""
+    You are a expert in fuzzing and program analysis. please analyze the following information and suggest a new seed that might help the fuzzer reach new paths.
+    
+    current basic block ID: {entry.last_bb_id}
+    current basic block info: {bb_info}
+    current seed: {entry.seed_content}
+    current seed_hex: {entry.seed_content.hex()}
+
+    source code of last 3 basic blocks in path:
+    {code_snippet}
+
+    current stucked condition: 
+    
+    now please provide a new seed in hex format
+    """
+    client = Client(host='http://localhost:11434')
+    response = client.generate(model='qwen3:8b', prompt=prompt)
+    print(response['response'])
