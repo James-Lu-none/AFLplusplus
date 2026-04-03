@@ -77,8 +77,8 @@ def update_all_settings(n_clicks, interval, top_n, llm_threshold, llm_endpoint, 
     # Handle initial call (prevent logging and syncing on start)
     if not n_clicks:
         # Load initial CFG elements with default top_n
-        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, safe_int(top_n, 10))
-        return 1000, cfg_elements
+        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, safe_int(top_n, DEFAULT_FILTER_TOP_N))
+        return dash.no_update, cfg_elements
 
     try:
         # Sync UI settings with monitor thread shared state
@@ -87,7 +87,7 @@ def update_all_settings(n_clicks, interval, top_n, llm_threshold, llm_endpoint, 
         # Use safe conversions
         s_llm_threshold = safe_int(llm_threshold, DEFAULT_LLM_THRESHOLD)
         s_interval = safe_int(interval, DEFAULT_REFRESH_INTERVAL)
-        s_top_n = safe_int(top_n, DEFAULT_TOP_N)
+        s_top_n = safe_int(top_n, DEFAULT_FILTER_TOP_N)
 
         with monitor_lock:
             core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, s_llm_threshold)

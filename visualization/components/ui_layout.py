@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, MIN_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL, MAX_TARGETS
+from config import *
 
 def create_layout(initial_stylesheet):
     """
@@ -97,9 +97,9 @@ def create_layout(initial_stylesheet):
                             children=[
                                 html.H4("Refresh Settings", style={'marginTop': '0'}),
         
-                                input_row("Refresh Interval (ms):", "interval-setting", 1000),
-                                input_row("Filter Top N Nodes (0 = All):", "top-n-input", 10),
-                                input_row("LLM Feedback Threshold (sec):", "llm-threshold-input", 60),
+                                input_row("Refresh Interval (ms):", "interval-setting", DEFAULT_REFRESH_INTERVAL),
+                                input_row("Filter Top N Nodes (0 = All):", "top-n-input", DEFAULT_FILTER_TOP_N),
+                                input_row("LLM Feedback Threshold (sec):", "llm-threshold-input", DEFAULT_LLM_THRESHOLD),
                                 
                                 html.Label("LLM Endpoint:", style={'fontSize': '12px', 'color': '#bbb', 'display': 'block', 'marginBottom': '5px', 'marginTop': '10px'}),
                                 dcc.Input(
