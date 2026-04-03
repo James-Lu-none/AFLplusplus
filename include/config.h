@@ -543,7 +543,7 @@ We add 4 byte for one u32 length field. */
 #ifdef custom_instrumentation
 /* 距離計算 SHM ID */
 #define MAX_TARGETS 64
-#define MAX_SEED_SIZE 512
+#define MAX_SEED_SIZE 1024000
 #define MAX_PATH_LENGTH 512
 #include <stdint.h>
 struct distance_entry {
