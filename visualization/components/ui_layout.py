@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL
 
 def create_layout(initial_stylesheet):
     """
@@ -112,6 +112,14 @@ def create_layout(initial_stylesheet):
                                     id='llm-endpoint-input',
                                     type='text',
                                     value=DEFAULT_LLM_ENDPOINT,
+                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
+                                html.Hr(),
+                                html.Label("LLM Model:", style={'fontSize': '12px'}),
+                                dcc.Input(
+                                    id='llm-model-input',
+                                    type='text',
+                                    value=DEFAULT_LLM_MODEL,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
                                 ),
                                 html.Hr(),

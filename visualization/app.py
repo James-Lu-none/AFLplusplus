@@ -16,7 +16,8 @@ from config import (
     MAX_TARGETS,
     DEFAULT_TOP_N,
     DEFAULT_LLM_THRESHOLD,
-    DEFAULT_LLM_ENDPOINT
+    DEFAULT_LLM_ENDPOINT,
+    DEFAULT_LLM_MODEL
 )
 from core.models import SharedDistKVStore
 from core.shm_handler import (
@@ -92,9 +93,10 @@ def update_refresh_rate(value):
     [Input('refresh-timer', 'n_intervals')],
     [State('llm-threshold-input', 'value'),
      State('llm-endpoint-input', 'value'),
+     State('llm-model-input', 'value'),
      State('selected-target-idx', 'data')]
 )
-def update_live_data(n, llm_threshold, llm_endpoint, selected_idx):
+def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
     global current_dist_shm_ptr, target_timers, prev_active_counts
     
     if llm_threshold is None:
@@ -178,7 +180,7 @@ def update_live_data(n, llm_threshold, llm_endpoint, selected_idx):
                 target_timers[i] += 1
             
             if target_timers[i] >= llm_threshold:
-                trigger_llm_call(i, entry, target_bb_info, llm_endpoint)
+                trigger_llm_call(i, entry, target_bb_info, llm_endpoint, llm_model)
                 target_timers[i] = 0
 
         # Highlighting for Selected Target and Path

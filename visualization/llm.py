@@ -40,12 +40,12 @@ def get_bb_source_code(bb_id, bb_map, source_code_path):
         lines = f.readlines()
         return ''.join(lines[start-1:end])
 
-def trigger_llm_call(target_idx, entry, bb_info, endpoint):
+def trigger_llm_call(target_idx, entry, bb_info, endpoint, model):
     """
     Triggers an LLM call when a target is stuck, with error handling.
     """
     from app import log_message
-    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM via {endpoint}... BB Info: {bb_info}"
+    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM ({model}) via {endpoint}... BB Info: {bb_info}"
     print(f"[LLM TRIGGER] {msg}")
     log_message(f"LLM TRIGGER: {msg}")
     
@@ -81,15 +81,18 @@ def trigger_llm_call(target_idx, entry, bb_info, endpoint):
         if not endpoint:
             log_message("LLM Error: Endpoint not specified.")
             return
+        if not model:
+            log_message("LLM Error: Model not specified.")
+            return
             
         client = Client(host=endpoint)
-        response = client.generate(model='qwen3:8b', prompt=prompt)
+        response = client.generate(model=model, prompt=prompt)
         if 'response' in response:
             log_message(f"LLM Response received for Target {target_idx}")
             print(response['response'])
         else:
             log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
-        error_msg = f"LLM Call Failed ({endpoint}): {str(e)}"
+        error_msg = f"LLM Call Failed ({endpoint}, {model}): {str(e)}"
         print(f"[LLM ERROR] {error_msg}")
         log_message(error_msg)
