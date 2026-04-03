@@ -111,8 +111,8 @@ def load_cfg_with_graphviz(file_path, top_n=0):
             if match:
                 u, v, cond = match.groups()
                 color = "#888"
-                if "(TRUE)" in cond: color = "#28a745"
-                elif "(FALSE)" in cond: color = "#dc3545"
+                if "(T)" in cond: color = "#28a745"
+                elif "(F)" in cond: color = "#dc3545"
                 
                 G.add_edge(u, v)
                 edges_info.append({'u': u, 'v': v, 'label': cond if cond != "none" else "", 'color': color})
