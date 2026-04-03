@@ -9,3 +9,6 @@ def log_message(msg):
     # timezone use taipei (GMT+8)
     timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
     app_logs.appendleft(f"[{timestamp}] {msg}")
+    # write to file as well
+    with open("log.txt", "a") as f:
+        f.write(f"[{timestamp}] {msg}\n")
