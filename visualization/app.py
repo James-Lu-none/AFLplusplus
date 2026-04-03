@@ -25,6 +25,7 @@ from core.shm_handler import (
     dist_shm_ptr
 )
 from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz, load_bb_lines_map, load_target_bb_map
+from core.llm import trigger_llm_call
 from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
@@ -70,16 +71,6 @@ def log_message(msg):
     """Adds a timestamped message to the log buffer."""
     timestamp = datetime.now().strftime("%H:%M:%S")
     app_logs.appendleft(f"[{timestamp}] {msg}")
-
-def trigger_llm_call(target_idx, entry, bb_info):
-    """
-    Placeholder for triggering an LLM call when a target is stuck.
-    """
-    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}"
-    print(f"[LLM TRIGGER] {msg}")
-    log_message(f"LLM TRIGGER: {msg}")
-    # In a real scenario, you would call your LLM API here.
-    pass
 
 @app.callback(
     Output('refresh-timer', 'interval'),
