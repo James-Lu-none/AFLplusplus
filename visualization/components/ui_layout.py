@@ -101,7 +101,20 @@ def create_layout(initial_stylesheet):
                                     "LLM Feedback Threshold (sec):", "llm-threshold-input", "llm-threshold-display", 
                                     1, 3600, 1, 60
                                 ),
-
+                                html.Label("LLM Endpoint:", style={'fontSize': '12px'}),
+                                dcc.Input(
+                                    id='llm-endpoint-input',
+                                    type='text',
+                                    value=DEFAULT_LLM_ENDPOINT,
+                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
+                                html.Label("LLM Model:", style={'fontSize': '12px'}),
+                                dcc.Input(
+                                    id='llm-model-input',
+                                    type='text',
+                                    value=DEFAULT_LLM_MODEL,
+                                    style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
+                                ),
                                 html.Label("Visualization Settings", style={'fontSize': '12px'}),
                                 dcc.Checklist(
                                     id='cfg-enabled-toggle',

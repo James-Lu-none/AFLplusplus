@@ -23,6 +23,11 @@ target_timers = [0] * MAX_TARGETS
 prev_active_counts = [0] * MAX_TARGETS
 monitor_lock = threading.Lock()
 
+# Shared settings that can be updated from the UI
+llm_endpoint_state = DEFAULT_LLM_ENDPOINT
+llm_model_state = DEFAULT_LLM_MODEL
+llm_threshold_state = DEFAULT_LLM_THRESHOLD
+
 def monitor_loop():
     """
     Background loop to check for stuck targets and trigger LLM calls.
@@ -33,17 +38,17 @@ def monitor_loop():
     bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
     target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
     
-    current_dist_shm_ptr = None
-    
-    # Use default settings from config or environment
-    llm_threshold = float(os.getenv("LLM_THRESHOLD", DEFAULT_LLM_THRESHOLD))
-    llm_threshold = max(MIN_LLM_THRESHOLD, llm_threshold)
-    llm_endpoint = os.getenv("LLM_ENDPOINT", DEFAULT_LLM_ENDPOINT)
-    llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+    log_message(f"Monitor Thread: Started. Threshold={DEFAULT_LLM_THRESHOLD}s, Endpoint={DEFAULT_LLM_ENDPOINT}, Model={DEFAULT_LLM_MODEL}")
 
-    log_message(f"Monitor Thread: Started. Threshold={llm_threshold}s, Endpoint={llm_endpoint}, Model={llm_model}")
+    current_dist_shm_ptr = None
 
     while True:
+        # Read current settings from shared state
+        with monitor_lock:
+            llm_endpoint = llm_endpoint_state
+            llm_model = llm_model_state
+            llm_threshold = llm_threshold_state
+
         if not current_dist_shm_ptr:
             current_dist_shm_ptr = get_afl_shm_ptr(TARGET_PROCESS_NAME, DIST_KV_SHM_NAME)
             if not current_dist_shm_ptr:

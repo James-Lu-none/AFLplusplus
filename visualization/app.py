@@ -6,7 +6,7 @@ import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from core.logger import app_logs, log_message
-from core.monitor import target_timers, prev_active_counts, monitor_lock, start_monitor
+from core.monitor import target_timers, prev_active_counts, monitor_lock, start_monitor, llm_endpoint_state, llm_model_state, llm_threshold_state
 
 from config import (
     CFG_EDGES_FILE, 
@@ -108,11 +108,23 @@ target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
      Output('log-panel', 'children')],
     [Input('refresh-timer', 'n_intervals')],
     [State('llm-threshold-input', 'value'),
+     State('llm-endpoint-input', 'value'),
+     State('llm-model-input', 'value'),
      State('selected-target-idx', 'data')]
 )
-def update_live_data(n, llm_threshold, selected_idx):
+def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
     global current_dist_shm_ptr
     
+    # Sync UI settings with monitor thread shared state
+    import core.monitor
+    with monitor_lock:
+        if llm_threshold is not None:
+            core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, llm_threshold)
+        if llm_endpoint:
+            core.monitor.llm_endpoint_state = llm_endpoint
+        if llm_model:
+            core.monitor.llm_model_state = llm_model
+
     if llm_threshold is None:
         llm_threshold = DEFAULT_LLM_THRESHOLD
     else:
