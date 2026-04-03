@@ -61,7 +61,7 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     bb_map = load_bb_lines_map()
     code_snippet = []
     # use the snapshotted path_content
-    for bb_id in path_content[:5]:
+    for bb_id in path_content[-5:]:
         code_snippet.append(f"BB {bb_id}:\n{get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5)}")
     code_snippet = '\n'.join(code_snippet)
 
