@@ -16,8 +16,8 @@ from config import (
     DIST_KV_SHM_NAME, 
     MIN_REFRESH_INTERVAL,
     MAX_TARGETS,
-    DEFAULT_TOP_N,
     DEFAULT_LLM_THRESHOLD,
+    MIN_LLM_THRESHOLD,
     DEFAULT_LLM_ENDPOINT,
     DEFAULT_LLM_MODEL
 )
@@ -96,6 +96,8 @@ def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
     
     if llm_threshold is None:
         llm_threshold = DEFAULT_LLM_THRESHOLD
+    else:
+        llm_threshold = max(MIN_LLM_THRESHOLD, llm_threshold)
     
     if not current_dist_shm_ptr:
         current_dist_shm_ptr = get_afl_shm_ptr(TARGET_PROCESS_NAME, DIST_KV_SHM_NAME)

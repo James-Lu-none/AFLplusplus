@@ -1,6 +1,6 @@
 from dash import html, dcc
 import dash_cytoscape as cyto
-from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL
+from config import DEFAULT_REFRESH_INTERVAL, DEFAULT_TOP_N, MIN_REFRESH_INTERVAL, DEFAULT_CFG_ENABLED, DEFAULT_LLM_THRESHOLD, MIN_LLM_THRESHOLD, DEFAULT_LLM_ENDPOINT, DEFAULT_LLM_MODEL
 
 def create_layout(initial_stylesheet):
     """
@@ -102,7 +102,7 @@ def create_layout(initial_stylesheet):
                                     id='llm-threshold-input',
                                     type='number',
                                     value=DEFAULT_LLM_THRESHOLD,
-                                    min=1,
+                                    min=MIN_LLM_THRESHOLD,
                                     step=1,
                                     style={'backgroundColor': '#333', 'color': 'white', 'border': '1px solid #555', 'width': '100%'}
                                 ),
