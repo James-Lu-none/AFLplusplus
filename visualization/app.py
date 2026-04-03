@@ -30,6 +30,35 @@ from components.ui_layout import create_layout
 
 # Initialize Dash app
 app = dash.Dash(__name__)
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden;
+            }
+            * {
+                box-sizing: border-box;
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
 
 # Global state for SHM, LLM Timers, and Logs
 current_dist_shm_ptr = None

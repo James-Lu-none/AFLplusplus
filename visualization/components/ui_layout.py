@@ -7,7 +7,7 @@ def create_layout(initial_stylesheet):
     Creates the main Dash layout.
     """
     return html.Div(
-        style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px'},
+        style={'backgroundColor': '#121212', 'color': 'white', 'height': '100vh', 'padding': '10px', 'boxSizing': 'border-box', 'margin': '0', 'overflow': 'hidden'},
         children=[
             html.Div(style={'display': 'flex', 'gap': '15px', 'width': '100%', 'height': '100%', 'overflow': 'hidden'}, children=[
                 # Graph visualization on the left
