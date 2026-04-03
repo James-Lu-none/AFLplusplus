@@ -5,6 +5,7 @@ import os
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from llm import trigger_llm_call
+from core.logger import app_logs, log_message
 
 from config import (
     CFG_EDGES_FILE, 
@@ -63,17 +64,10 @@ app.index_string = '''
 </html>
 '''
 
-# Global state for SHM, LLM Timers, and Logs
+# Global state for SHM, LLM Timers
 current_dist_shm_ptr = None
 target_timers = [0] * MAX_TARGETS
 prev_active_counts = [0] * MAX_TARGETS
-app_logs = deque(maxlen=100)
-
-def log_message(msg):
-    """Adds a timestamped message to the log buffer."""
-    # timezone use taipei
-    timestamp = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    app_logs.appendleft(f"[{timestamp}] {msg}")
 
 @app.callback(
     Output('refresh-timer', 'interval'),

@@ -1,6 +1,7 @@
 import os
 from ollama import Client
 from config import BB_LINES_MAP_FILE
+from core.logger import log_message
 
 def load_bb_lines_map():
     with open(BB_LINES_MAP_FILE, 'r') as f:
@@ -44,9 +45,7 @@ def trigger_llm_call(target_idx, entry, bb_info, endpoint, model):
     """
     Triggers an LLM call when a target is stuck, with error handling.
     """
-    from app import log_message
     msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM ({model}) via {endpoint}... BB Info: {bb_info}"
-    print(f"[LLM TRIGGER] {msg}")
     log_message(f"LLM TRIGGER: {msg}")
     
     source_code_path = os.getenv("SOURCE_CODE_PATH")
@@ -89,10 +88,8 @@ def trigger_llm_call(target_idx, entry, bb_info, endpoint, model):
         response = client.generate(model=model, prompt=prompt)
         if 'response' in response:
             log_message(f"LLM Response received for Target {target_idx}")
-            print(response['response'])
         else:
             log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
         error_msg = f"LLM Call Failed ({endpoint}, {model}): {str(e)}"
-        print(f"[LLM ERROR] {error_msg}")
         log_message(error_msg)
