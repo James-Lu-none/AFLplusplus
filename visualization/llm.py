@@ -89,8 +89,9 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
             
         client = Client(host=endpoint)
         response = client.generate(model=model, prompt=prompt)
+        log_message(f"LLM Request prompt for Target {target_idx}:\n {prompt}")
         if 'response' in response:
-            log_message(f"LLM Response received for Target {target_idx}")
+            log_message(f"LLM Response received for Target {target_idx}:\n {response['response']}")
         else:
             log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
