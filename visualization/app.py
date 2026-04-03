@@ -2,6 +2,7 @@ import dash
 from dash import Input, Output, State, html, ALL
 import dash_cytoscape as cyto
 import os
+import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from llm import trigger_llm_call
@@ -174,7 +175,17 @@ def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
                 target_timers[i] += 1
             
             if target_timers[i] >= llm_threshold:
-                trigger_llm_call(i, entry, target_bb_info, llm_endpoint, llm_model)
+                # Snapshot data to pass to the thread
+                data_snapshot = {
+                    'last_bb_id': entry.last_bb_id,
+                    'path_content': list(entry.path_content[:entry.path_len]),
+                    'seed_content': bytes(entry.seed_content[:entry.seed_len])
+                }
+                threading.Thread(
+                    target=trigger_llm_call, 
+                    args=(i, data_snapshot, target_bb_info, llm_endpoint, llm_model),
+                    daemon=True
+                ).start()
                 target_timers[i] = 0
 
         # Highlighting for Selected Target and Path

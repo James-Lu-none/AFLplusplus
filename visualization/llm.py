@@ -41,30 +41,35 @@ def get_bb_source_code(bb_id, bb_map, source_code_path):
         lines = f.readlines()
         return ''.join(lines[start-1:end])
 
-def trigger_llm_call(target_idx, entry, bb_info, endpoint, model):
+def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     """
-    Triggers an LLM call when a target is stuck, with error handling.
+    Triggers an LLM call when a target is stuck in a thread-safe manner.
     """
-    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM ({model}) via {endpoint}... BB Info: {bb_info}"
+    last_bb_id = data.get('last_bb_id', 'N/A')
+    path_content = data.get('path_content', [])
+    seed_content = data.get('seed_content', b'')
+    
+    msg = f"Target {target_idx} (BB {last_bb_id}) is stuck. Triggering LLM ({model}) via {endpoint}... BB Info: {bb_info}"
     log_message(f"LLM TRIGGER: {msg}")
     
     source_code_path = os.getenv("SOURCE_CODE_PATH")
     if source_code_path is None:
         log_message("SOURCE_CODE_PATH is not set.")
         return
+
     # get source code snippet for last 5 basic blocks in path
     bb_map = load_bb_lines_map()
     code_snippet = []
-    for bb_id in entry.path_content[:5]:
+    # use the snapshotted path_content
+    for bb_id in path_content[:5]:
         code_snippet.append(f"BB {bb_id}: {get_bb_source_code(bb_id, bb_map, source_code_path)}")
     code_snippet = '\n'.join(code_snippet)
 
-    seed_content = bytes(entry.seed_content[:entry.seed_len])
     # construct prompt from seed, cfg, and bb_info
     prompt = f"""
     You are a expert in fuzzing and program analysis. please analyze the following information and suggest a new seed that might help the fuzzer reach new paths.
     
-    current basic block ID: {entry.last_bb_id}
+    current basic block ID: {last_bb_id}
     current basic block info: {bb_info}
     current seed: {seed_content}
     current seed_hex: {seed_content.hex()}
