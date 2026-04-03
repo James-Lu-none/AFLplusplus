@@ -5,8 +5,8 @@ import os
 import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
-from llm import trigger_llm_call
 from core.logger import app_logs, log_message
+from core.monitor import target_timers, prev_active_counts, monitor_lock, start_monitor
 
 from config import (
     CFG_EDGES_FILE, 
@@ -63,10 +63,8 @@ app.index_string = '''
 </html>
 '''
 
-# Global state for SHM, LLM Timers
+# Global state for SHM
 current_dist_shm_ptr = None
-target_timers = [0] * MAX_TARGETS
-prev_active_counts = [0] * MAX_TARGETS
 
 @app.callback(
     Output('interval-display', 'children'),
@@ -111,7 +109,7 @@ def update_refresh_rate(value):
      State('selected-target-idx', 'data')]
 )
 def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
-    global current_dist_shm_ptr, target_timers, prev_active_counts
+    global current_dist_shm_ptr
     
     if llm_threshold is None:
         llm_threshold = DEFAULT_LLM_THRESHOLD
@@ -185,29 +183,10 @@ def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
                 }
             })
         
-        # Timer logic: Reset if active_count increases, else increment
-        if target_bb_info != "N/A": 
-            if entry.active_count > prev_active_counts[i]:
-                target_timers[i] = 0
-                prev_active_counts[i] = entry.active_count
-            else:
-                # Estimate elapsed time based on refresh interval (approx 1s if configured)
-                # Actually we can just increment by 1 if we assume check happens every 1s
-                target_timers[i] += 1
-            
-            if target_timers[i] >= llm_threshold:
-                # Snapshot data to pass to the thread
-                data_snapshot = {
-                    'last_bb_id': entry.last_bb_id,
-                    'path_content': list(entry.path_content[:entry.path_len]),
-                    'seed_content': bytes(entry.seed_content[:entry.seed_len])
-                }
-                threading.Thread(
-                    target=trigger_llm_call, 
-                    args=(i, data_snapshot, target_bb_info, llm_endpoint, llm_model),
-                    daemon=True
-                ).start()
-                target_timers[i] = 0
+        # Timer display is read from shared monitor state
+        timer_val = 0
+        with monitor_lock:
+            timer_val = target_timers[i]
 
         # Highlighting for Selected Target and Path
         if i == selected_idx:
@@ -273,10 +252,10 @@ def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
                 html.Td(f"{entry.min_distance}", style={'padding': '5px'}),
                 html.Td(f"{curr_bb}", style={'padding': '5px'}),
                 html.Td(f"{entry.seed_len}", style={'padding': '5px'}),
-                html.Td(f"{target_timers[i]}s", style={
+                html.Td(f"{timer_val}s", style={
                     'padding': '5px', 
-                    'color': '#ff4444' if target_timers[i] > llm_threshold / 2 else '#00ff00',
-                    'fontWeight': 'bold' if target_timers[i] > llm_threshold / 2 else 'normal'
+                    'color': '#ff4444' if timer_val > llm_threshold / 2 else '#00ff00',
+                    'fontWeight': 'bold' if timer_val > llm_threshold / 2 else 'normal'
                 })
             ]
         ))
@@ -416,6 +395,9 @@ app.layout = create_layout(get_default_stylesheet())
 if __name__ == '__main__':
     # Start the SHM collector thread
     start_collector()
+    
+    # Start the background monitor thread
+    start_monitor()
     
     # Run Dash app
     app.run(host='0.0.0.0', port=8050, debug=False)
