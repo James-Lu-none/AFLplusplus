@@ -8,19 +8,7 @@ from datetime import datetime, timezone, timedelta
 from core.logger import app_logs, log_message
 from core.monitor import target_timers, prev_active_counts, monitor_lock, start_monitor, llm_endpoint_state, llm_model_state, llm_threshold_state
 
-from config import (
-    CFG_EDGES_FILE, 
-    BB_LINES_MAP_FILE,
-    TARGET_BB_MAP_FILE,
-    TARGET_PROCESS_NAME, 
-    DIST_KV_SHM_NAME, 
-    MIN_REFRESH_INTERVAL,
-    MAX_TARGETS,
-    DEFAULT_LLM_THRESHOLD,
-    MIN_LLM_THRESHOLD,
-    DEFAULT_LLM_ENDPOINT,
-    DEFAULT_LLM_MODEL
-)
+from config import *
 from core.models import SharedDistKVStore
 from core.shm_handler import (
     get_afl_shm_ptr, 
@@ -68,9 +56,7 @@ current_dist_shm_ptr = None
 
 @app.callback(
     [Output('refresh-timer', 'interval'),
-     Output('cfg-graph', 'elements'),
-     Output('update-button', 'children'),
-     Output('update-button', 'style')],
+     Output('cfg-graph', 'elements')],
     [Input('update-button', 'n_clicks')],
     [State('interval-setting', 'value'),
      State('top-n-input', 'value'),
@@ -79,56 +65,52 @@ current_dist_shm_ptr = None
      State('llm-model-input', 'value')]
 )
 def update_all_settings(n_clicks, interval, top_n, llm_threshold, llm_endpoint, llm_model):
-    # Default button style
-    btn_style = {
-        'marginTop': '20px',
-        'width': '100%',
-        'backgroundColor': '#6a5acd',
-        'color': 'white',
-        'border': 'none',
-        'padding': '10px',
-        'borderRadius': '5px',
-        'cursor': 'pointer',
-        'fontWeight': 'bold',
-        'transition': 'all 0.3s ease'
-    }
+    # Helper for safe numeric conversion
+    def safe_int(val, default):
+        try:
+            if val is None or str(val).strip() == "":
+                return default
+            return int(float(val))
+        except (ValueError, TypeError):
+            return default
 
-    if n_clicks is None:
-        # Initial load logic
-        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, 10)
-        return 1000, cfg_elements, "Update Settings", btn_style
+    # Handle initial call (prevent logging and syncing on start)
+    if not n_clicks:
+        # Load initial CFG elements with default top_n
+        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, safe_int(top_n, 10))
+        return 1000, cfg_elements
 
-    # Sync UI settings with monitor thread shared state
-    import core.monitor
-    from core.logger import log_message
-    
-    with monitor_lock:
-        if llm_threshold is not None:
-            core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, int(llm_threshold))
-        if llm_endpoint:
-            core.monitor.llm_endpoint_state = llm_endpoint
-        if llm_model:
-            core.monitor.llm_model_state = llm_model
-
-    # Determine refresh interval
-    refresh_interval = 1000
-    if interval is not None:
-        refresh_interval = max(MIN_REFRESH_INTERVAL, int(interval))
-    
-    # Determine CFG elements
-    if top_n is None:
-        from config import DEFAULT_TOP_N
-        top_n = DEFAULT_TOP_N
+    try:
+        # Sync UI settings with monitor thread shared state
+        import core.monitor
         
-    cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, int(top_n))
-    
-    # Log the update
-    log_message(f"Settings Updated: Interval={refresh_interval}ms, TopN={top_n}, LLM_Threshold={llm_threshold}s, Endpoint={llm_endpoint}, Model={llm_model}")
-    
-    # Update button feedback
-    btn_style['backgroundColor'] = '#28a745' # Success green
-    
-    return refresh_interval, cfg_elements, "Settings Applied!", btn_style
+        # Use safe conversions
+        s_llm_threshold = safe_int(llm_threshold, DEFAULT_LLM_THRESHOLD)
+        s_interval = safe_int(interval, DEFAULT_REFRESH_INTERVAL)
+        s_top_n = safe_int(top_n, DEFAULT_TOP_N)
+
+        with monitor_lock:
+            core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, s_llm_threshold)
+            if llm_endpoint:
+                core.monitor.llm_endpoint_state = llm_endpoint
+            if llm_model:
+                core.monitor.llm_model_state = llm_model
+
+        # Determine refresh interval
+        refresh_interval = max(MIN_REFRESH_INTERVAL, s_interval)
+        
+        # Determine CFG elements
+        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, s_top_n)
+        
+        # Log the update
+        log_message(f"Settings Updated: Interval={refresh_interval}ms, TopN={s_top_n}, LLM_Threshold={s_llm_threshold}s, Endpoint={llm_endpoint}, Model={llm_model}")
+        
+        return refresh_interval, cfg_elements
+        
+    except Exception as e:
+        log_message(f"Update Error: {str(e)}")
+        # Return fallback values to prevent UI crash
+        return 1000, []
 
 # Pre-load metadata
 bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
