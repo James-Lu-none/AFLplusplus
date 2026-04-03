@@ -132,8 +132,12 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
         if 'response' in response:
             log_message(f"LLM Response received for Target {target_idx}:\n {response['response']}")
             # transform response from hex format to bytes
-            new_seed_content = extract_and_convert_hex(response['response'])
-            save_llm_seed(new_seed_content, os.getenv("AFL_OUT_DIR"), target_idx)
+            parsed_seed_content = extract_and_convert_hex(response['response'])
+            if parsed_seed_content is not None:
+                log_message(f"Parsed LLM Seed (Hex) for Target {target_idx}: {parsed_seed_content.hex()}")
+                save_llm_seed(parsed_seed_content, os.getenv("AFL_OUT_DIR"), target_idx)
+            else:
+                log_message(f"Failed to extract valid hex seed from LLM response for Target {target_idx}.")
         else:
             log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
