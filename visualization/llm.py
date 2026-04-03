@@ -40,14 +40,15 @@ def get_bb_source_code(bb_id, bb_map, source_code_path):
         lines = f.readlines()
         return ''.join(lines[start-1:end])
 
-def trigger_llm_call(target_idx, entry, bb_info):
+def trigger_llm_call(target_idx, entry, bb_info, endpoint):
     """
-    Placeholder for triggering an LLM call when a target is stuck.
+    Triggers an LLM call when a target is stuck, with error handling.
     """
     from app import log_message
-    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM... BB Info: {bb_info}"
+    msg = f"Target {target_idx} (BB {entry.last_bb_id}) is stuck. Triggering LLM via {endpoint}... BB Info: {bb_info}"
     print(f"[LLM TRIGGER] {msg}")
     log_message(f"LLM TRIGGER: {msg}")
+    
     source_code_path = os.getenv("SOURCE_CODE_PATH")
     if source_code_path is None:
         log_message("SOURCE_CODE_PATH is not set.")
@@ -76,6 +77,19 @@ def trigger_llm_call(target_idx, entry, bb_info):
     
     now please provide a new seed in hex format
     """
-    client = Client(host='http://localhost:11434')
-    response = client.generate(model='qwen3:8b', prompt=prompt)
-    print(response['response'])
+    try:
+        if not endpoint:
+            log_message("LLM Error: Endpoint not specified.")
+            return
+            
+        client = Client(host=endpoint)
+        response = client.generate(model='qwen3:8b', prompt=prompt)
+        if 'response' in response:
+            log_message(f"LLM Response received for Target {target_idx}")
+            print(response['response'])
+        else:
+            log_message(f"LLM Error: Unexpected response format from {endpoint}")
+    except Exception as e:
+        error_msg = f"LLM Call Failed ({endpoint}): {str(e)}"
+        print(f"[LLM ERROR] {error_msg}")
+        log_message(error_msg)
