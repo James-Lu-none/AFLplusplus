@@ -386,6 +386,32 @@ PreservedAnalyses ModuleSanitizerCoverageLTO::run(Module                &M,
 
 }
 
+#ifdef custom_instrumentation
+// transform Value to string
+std::string getValueName(Value *V) {
+    if (V->hasName()) return V->getName().str();
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    V->printAsOperand(rso, false);
+    return name;
+}
+
+// transform CmpInst predicate to string
+std::string getPredicateStr(CmpInst *Cmp) {
+    std::string pred;
+    switch (Cmp->getPredicate()) {
+        case CmpInst::ICMP_EQ:  case CmpInst::FCMP_OEQ: pred = "=="; break;
+        case CmpInst::ICMP_NE:  case CmpInst::FCMP_ONE: pred = "!="; break;
+        case CmpInst::ICMP_SGT: case CmpInst::ICMP_UGT: case CmpInst::FCMP_OGT: pred = ">"; break;
+        case CmpInst::ICMP_SGE: case CmpInst::ICMP_UGE: case CmpInst::FCMP_OGE: pred = ">="; break;
+        case CmpInst::ICMP_SLT: case CmpInst::ICMP_ULT: case CmpInst::FCMP_OLT: pred = "<"; break;
+        case CmpInst::ICMP_SLE: case CmpInst::ICMP_ULE: case CmpInst::FCMP_OLE: pred = "<="; break;
+        default: pred = "cmp"; break;
+    }
+    return getValueName(Cmp->getOperand(0)) + " " + pred + " " + getValueName(Cmp->getOperand(1));
+}
+#endif
+
 bool ModuleSanitizerCoverageLTO::instrumentModule(
     Module &M, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
@@ -1523,32 +1549,6 @@ Function *returnOnlyCaller(Function *F) {
   return caller;
 
 }
-
-#ifdef custom_instrumentation
-// transform Value to string
-std::string getValueName(Value *V) {
-    if (V->hasName()) return V->getName().str();
-    std::string name;
-    llvm::raw_string_ostream rso(name);
-    V->printAsOperand(rso, false);
-    return name;
-}
-
-// transform CmpInst predicate to string
-std::string getPredicateStr(CmpInst *Cmp) {
-    std::string pred;
-    switch (Cmp->getPredicate()) {
-        case CmpInst::ICMP_EQ:  case CmpInst::FCMP_OEQ: pred = "=="; break;
-        case CmpInst::ICMP_NE:  case CmpInst::FCMP_ONE: pred = "!="; break;
-        case CmpInst::ICMP_SGT: case CmpInst::ICMP_UGT: case CmpInst::FCMP_OGT: pred = ">"; break;
-        case CmpInst::ICMP_SGE: case CmpInst::ICMP_UGE: case CmpInst::FCMP_OGE: pred = ">="; break;
-        case CmpInst::ICMP_SLT: case CmpInst::ICMP_ULT: case CmpInst::FCMP_OLT: pred = "<"; break;
-        case CmpInst::ICMP_SLE: case CmpInst::ICMP_ULE: case CmpInst::FCMP_OLE: pred = "<="; break;
-        default: pred = "cmp"; break;
-    }
-    return getValueName(Cmp->getOperand(0)) + " " + pred + " " + getValueName(Cmp->getOperand(1));
-}
-#endif
 
 void ModuleSanitizerCoverageLTO::instrumentFunction(
     Function &F, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
