@@ -2305,71 +2305,42 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     // output CFG edges for visualization
     Instruction *TI = BB.getTerminator();
-    std::string  condStr = "none";
-    BranchInst  *BI = dyn_cast<BranchInst>(TI);
-
-    if (BI && BI->isConditional()) {
-      Value *Cond = BI->getCondition();
-      if (auto *IC = dyn_cast<ICmpInst>(Cond)) {
-        std::string pred;
-        switch (IC->getPredicate()) {
-          case ICmpInst::ICMP_EQ:
-            pred = "==";
-            break;
-          case ICmpInst::ICMP_NE:
-            pred = "!=";
-            break;
-          case ICmpInst::ICMP_UGT:
-          case ICmpInst::ICMP_SGT:
-            pred = ">";
-            break;
-          case ICmpInst::ICMP_UGE:
-          case ICmpInst::ICMP_SGE:
-            pred = ">=";
-            break;
-          case ICmpInst::ICMP_ULT:
-          case ICmpInst::ICMP_SLT:
-            pred = "<";
-            break;
-          case ICmpInst::ICMP_ULE:
-          case ICmpInst::ICMP_SLE:
-            pred = "<=";
-            break;
-          default:
-            pred = "cmp";
-            break;
-        }
-
-        std::string              op0, op1;
-        llvm::raw_string_ostream rso0(op0), rso1(op1);
-        IC->getOperand(0)->printAsOperand(rso0, false);
-        IC->getOperand(1)->printAsOperand(rso1, false);
-        condStr = op0 + " " + pred + " " + op1;
-      } else {
-        llvm::raw_string_ostream rso_cond(condStr);
-        Cond->print(rso_cond);
-      }
-    }
-
     std::ofstream edgeFile("cfg_edges.txt", std::ios::app);
-    if (edgeFile.is_open()) {
-      unsigned n = TI->getNumSuccessors();
-      for (unsigned i = 0; i < n; ++i) {
-        BasicBlock              *Succ = TI->getSuccessor(i);
-        std::string              succName;
-        llvm::raw_string_ostream rso_succ(succName);
-        Succ->printAsOperand(rso_succ, false);
 
-        edgeFile << bbName << ", " << succName << ", [";
-        if (BI && BI->isConditional()) {
-          edgeFile << condStr << (i == 0 ? " (TRUE)" : " (FALSE)");
+    if (!edgeFile.is_open()) return;
+
+    if (auto *BI = dyn_cast<BranchInst>(TI)) { // conditional or unconditional branch
+        if (BI->isConditional()) {
+            std::string condStr = "condition";
+            if (auto *Cmp = dyn_cast<CmpInst>(BI->getCondition())) {
+                condStr = getPredicateStr(Cmp);
+            } else {
+                condStr = getValueName(BI->getCondition());
+            }
+            edgeFile << bbName << ", "<< getValueName(BI->getSuccessor(0)) << ", [label=\"" << condStr << " (T)\"]\n";
+            edgeFile << bbName << ", " << getValueName(BI->getSuccessor(1)) << ", [label=\"" << condStr << " (F)\"]\n";
         } else {
-          edgeFile << "none";
+            edgeFile << bbName << ", " << getValueName(BI->getSuccessor(0)) << ", [label=\"unconditional\"]\n";
         }
-        edgeFile << "]\n";
-      }
-      edgeFile.close();
     }
+    else if (auto *SI = dyn_cast<SwitchInst>(TI)) { // switch instruction
+        std::string condVar = getValueName(SI->getCondition());
+        for (auto &Case : SI->cases()) {
+            std::string val = getValueName(Case.getCaseValue());
+            edgeFile << bbName << ", " << getValueName(Case.getCaseSuccessor()) << ", [label=\"" << condVar << " == " << val << "\"]\n";
+        }
+        edgeFile << bbName << ", " << getValueName(SI->getDefaultDest()) << ", [label=\"" << condVar << " (default)\"]\n";
+    }
+    else if (auto *II = dyn_cast<InvokeInst>(TI)) { // invoke instruction (with normal and unwind destinations)
+        edgeFile << bbName << ", " << getValueName(II->getNormalDest()) << ", [label=\"normal return\"]\n";
+        edgeFile << bbName << ", " << getValueName(II->getUnwindDest()) << ", [label=\"exception/unwind\"]\n";
+    }
+    else { // other terminators (e.g., return, unreachable)
+        for (unsigned i = 0; i < TI->getNumSuccessors(); ++i) {
+            edgeFile << bbName << ", " << getValueName(TI->getSuccessor(i)) << ", [label=\"other\"]\n";
+        }
+    }
+    edgeFile.close();
 #endif
 
 #ifdef custom_instrumentation
