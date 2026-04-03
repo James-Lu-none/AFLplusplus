@@ -34,7 +34,7 @@ from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
 # Initialize Dash app
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, suppress_callback_exceptions=True)
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -96,6 +96,10 @@ def update_refresh_rate(value):
         return 1000
     return value
 
+# Pre-load metadata
+bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
+target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
+
 @app.callback(
     [Output('cfg-graph', 'stylesheet'),
      Output('live-status-info', 'children'),
@@ -104,11 +108,9 @@ def update_refresh_rate(value):
      Output('log-panel', 'children')],
     [Input('refresh-timer', 'n_intervals')],
     [State('llm-threshold-input', 'value'),
-     State('llm-endpoint-input', 'value'),
-     State('llm-model-input', 'value'),
      State('selected-target-idx', 'data')]
 )
-def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
+def update_live_data(n, llm_threshold, selected_idx):
     global current_dist_shm_ptr
     
     if llm_threshold is None:
@@ -143,8 +145,7 @@ def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
     ]
 
     rows = []
-    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
-    target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
+    # bb_map and target_bb_map are now pre-loaded outside the callback
     
     for i in range(MAX_TARGETS):
         entry = dist_kv.entries[i]
@@ -322,8 +323,7 @@ def display_target_data(selected_idx, n):
     except Exception:
         return "Error accessing SHM data."
 
-    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
-    target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
+    # bb_map and target_bb_map are now pre-loaded outside the callback
     
     target_bb = target_bb_map.get(selected_idx, "N/A")
     target_info = f"Target {selected_idx}: {target_bb}"

@@ -12,10 +12,7 @@ def create_layout(initial_stylesheet):
                 html.Label(label, style={'fontSize': '12px', 'color': '#bbb'}),
                 html.Span(id=display_id, style={'color': '#00ff00', 'fontWeight': 'bold', 'fontSize': '14px', 'fontFamily': 'monospace'})
             ]),
-            dcc.Slider(
-                id=slider_id, min=min_val, max=max_val, step=step, value=default,
-                marks={i: str(i) for i in range(min_val, max_val + 1, step)}, updatemode='drag'
-            )
+            dcc.Slider(id=slider_id, min=min_val, max=max_val, step=step, value=default, marks=None, updatemode='drag', className='custom-slider')
         ])
     
     return html.Div(
@@ -104,6 +101,14 @@ def create_layout(initial_stylesheet):
                                     "LLM Feedback Threshold (sec):", "llm-threshold-input", "llm-threshold-display", 
                                     1, 3600, 1, 60
                                 ),
+
+                                html.Label("Visualization Settings", style={'fontSize': '12px'}),
+                                dcc.Checklist(
+                                    id='cfg-enabled-toggle',
+                                    options=[{'label': ' Enable CFG Graph', 'value': 'enabled'}],
+                                    value=['enabled'] if DEFAULT_CFG_ENABLED else [],
+                                    style={'fontSize': '14px', 'marginTop': '5px', 'color': '#bbb'}
+                                )
                             ]
                         ),
 
