@@ -67,34 +67,68 @@ app.index_string = '''
 current_dist_shm_ptr = None
 
 @app.callback(
-    Output('interval-display', 'children'),
-    Input('interval-setting', 'value')
+    [Output('refresh-timer', 'interval'),
+     Output('cfg-graph', 'elements'),
+     Output('update-button', 'children'),
+     Output('update-button', 'style')],
+    [Input('update-button', 'n_clicks')],
+    [State('interval-setting', 'value'),
+     State('top-n-input', 'value'),
+     State('llm-threshold-input', 'value'),
+     State('llm-endpoint-input', 'value'),
+     State('llm-model-input', 'value')]
 )
-def update_interval_display(val):
-    return f"{val} ms"
+def update_all_settings(n_clicks, interval, top_n, llm_threshold, llm_endpoint, llm_model):
+    # Default button style
+    btn_style = {
+        'marginTop': '20px',
+        'width': '100%',
+        'backgroundColor': '#6a5acd',
+        'color': 'white',
+        'border': 'none',
+        'padding': '10px',
+        'borderRadius': '5px',
+        'cursor': 'pointer',
+        'fontWeight': 'bold',
+        'transition': 'all 0.3s ease'
+    }
 
-@app.callback(
-    Output('top-n-display', 'children'),
-    Input('top-n-input', 'value')
-)
-def update_top_n_display(val):
-    return val
+    if n_clicks is None:
+        # Initial load logic
+        cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, 10)
+        return 1000, cfg_elements, "Update Settings", btn_style
 
-@app.callback(
-    Output('llm-threshold-display', 'children'),
-    Input('llm-threshold-input', 'value')
-)
-def update_llm_display(val):
-    return f"{val} s"
+    # Sync UI settings with monitor thread shared state
+    import core.monitor
+    from core.logger import log_message
+    
+    with monitor_lock:
+        if llm_threshold is not None:
+            core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, int(llm_threshold))
+        if llm_endpoint:
+            core.monitor.llm_endpoint_state = llm_endpoint
+        if llm_model:
+            core.monitor.llm_model_state = llm_model
 
-@app.callback(
-    Output('refresh-timer', 'interval'),
-    [Input('interval-setting', 'value')]
-)
-def update_refresh_rate(value):
-    if value is None or value < MIN_REFRESH_INTERVAL:
-        return 1000
-    return value
+    # Determine refresh interval
+    refresh_interval = 1000
+    if interval is not None:
+        refresh_interval = max(MIN_REFRESH_INTERVAL, int(interval))
+    
+    # Determine CFG elements
+    if top_n is None:
+        from config import DEFAULT_TOP_N
+        top_n = DEFAULT_TOP_N
+        
+    cfg_elements = load_cfg_with_graphviz(CFG_EDGES_FILE, int(top_n))
+    
+    # Log the update
+    log_message(f"Settings Updated: Interval={refresh_interval}ms, TopN={top_n}, LLM_Threshold={llm_threshold}s, Endpoint={llm_endpoint}, Model={llm_model}")
+    
+    # Update button feedback
+    btn_style['backgroundColor'] = '#28a745' # Success green
+    
+    return refresh_interval, cfg_elements, "Settings Applied!", btn_style
 
 # Pre-load metadata
 bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
@@ -107,28 +141,16 @@ target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
      Output('coverage-stats', 'children'),
      Output('log-panel', 'children')],
     [Input('refresh-timer', 'n_intervals')],
-    [State('llm-threshold-input', 'value'),
-     State('llm-endpoint-input', 'value'),
-     State('llm-model-input', 'value'),
-     State('selected-target-idx', 'data')]
+    [State('selected-target-idx', 'data')]
 )
-def update_live_data(n, llm_threshold, llm_endpoint, llm_model, selected_idx):
+def update_live_data(n, selected_idx):
     global current_dist_shm_ptr
     
-    # Sync UI settings with monitor thread shared state
     import core.monitor
     with monitor_lock:
-        if llm_threshold is not None:
-            core.monitor.llm_threshold_state = max(MIN_LLM_THRESHOLD, llm_threshold)
-        if llm_endpoint:
-            core.monitor.llm_endpoint_state = llm_endpoint
-        if llm_model:
-            core.monitor.llm_model_state = llm_model
-
-    if llm_threshold is None:
-        llm_threshold = DEFAULT_LLM_THRESHOLD
-    else:
-        llm_threshold = max(MIN_LLM_THRESHOLD, llm_threshold)
+        llm_threshold = core.monitor.llm_threshold_state
+        llm_endpoint = core.monitor.llm_endpoint_state
+        llm_model = core.monitor.llm_model_state
     
     if not current_dist_shm_ptr:
         current_dist_shm_ptr = get_afl_shm_ptr(TARGET_PROCESS_NAME, DIST_KV_SHM_NAME)
@@ -379,26 +401,16 @@ def reset_node_tap(data):
     # longer use tapNodeData after using selected-target-idx
     return data
 
-@app.callback(
-    Output('cfg-graph', 'elements'),
-    [Input('top-n-input', 'value'),
-     Input('cfg-enabled-toggle', 'value')]
-)
-def update_cfg_elements(top_n, cfg_enabled):
-    if not cfg_enabled or 'enabled' not in cfg_enabled:
-        return []
-    
-    if top_n is None:
-        top_n = DEFAULT_TOP_N
-    return load_cfg_with_graphviz(CFG_EDGES_FILE, top_n)
+# Removed callback for cfg-graph elements as it's now handled by update_all_settings
+
 
 @app.callback(
     Output('cfg-graph', 'style'),
-    [Input('cfg-enabled-toggle', 'value')]
+    [Input('cfg-graph', 'elements')]
 )
-def toggle_cfg_visibility(cfg_enabled):
+def toggle_cfg_visibility(elements):
     base_style = {'width': '100%', 'height': '100%', 'border': '1px solid #444'}
-    if not cfg_enabled or 'enabled' not in cfg_enabled:
+    if not elements:
         base_style['display'] = 'none'
     return base_style
 
