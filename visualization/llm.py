@@ -1,6 +1,7 @@
 import os
 import re
 import binascii
+import threading
 from ollama import Client
 from config import BB_LINES_MAP_FILE
 from core.logger import log_message
@@ -80,6 +81,9 @@ def save_llm_seed(new_seed_content, output_dir, seed_id):
         f.write(new_seed_content)
     log_message(f"Seed injected to {file_path}")
 
+# Limit concurrent LLM calls to prevent choking the endpoint
+llm_semaphore = threading.BoundedSemaphore(1)
+
 def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     """
     Triggers an LLM call when a target is stuck in a thread-safe manner.
@@ -126,20 +130,21 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
             log_message("LLM Error: Model not specified.")
             return
             
-        client = Client(host=endpoint)
-        response = client.generate(model=model, prompt=prompt)
-        log_message(f"LLM Request prompt for Target {target_idx}:\n {prompt}")
-        if 'response' in response:
-            log_message(f"LLM Response received for Target {target_idx}:\n {response['response']}")
-            # transform response from hex format to bytes
-            parsed_seed_content = extract_and_convert_hex(response['response'])
-            if parsed_seed_content is not None:
-                log_message(f"Parsed LLM Seed (Hex) for Target {target_idx}: {parsed_seed_content.hex()}")
-                save_llm_seed(parsed_seed_content, os.getenv("AFL_OUT_DIR"), target_idx)
+        with llm_semaphore:
+            client = Client(host=endpoint)
+            response = client.generate(model=model, prompt=prompt)
+            log_message(f"LLM Request prompt for Target {target_idx}:\n {prompt}")
+            if 'response' in response:
+                log_message(f"LLM Response received for Target {target_idx}:\n {response['response']}")
+                # transform response from hex format to bytes
+                parsed_seed_content = extract_and_convert_hex(response['response'])
+                if parsed_seed_content is not None:
+                    log_message(f"Parsed LLM Seed (Hex) for Target {target_idx}: {parsed_seed_content.hex()}")
+                    save_llm_seed(parsed_seed_content, os.getenv("AFL_OUT_DIR"), target_idx)
+                else:
+                    log_message(f"Failed to extract valid hex seed from LLM response for Target {target_idx}.")
             else:
-                log_message(f"Failed to extract valid hex seed from LLM response for Target {target_idx}.")
-        else:
-            log_message(f"LLM Error: Unexpected response format from {endpoint}")
+                log_message(f"LLM Error: Unexpected response format from {endpoint}")
     except Exception as e:
         error_msg = f"LLM Call Failed ({endpoint}, {model}): {str(e)}"
         log_message(error_msg)
