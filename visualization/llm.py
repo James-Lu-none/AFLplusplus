@@ -1,4 +1,6 @@
 import os
+import re
+import binascii
 from ollama import Client
 from config import BB_LINES_MAP_FILE
 from core.logger import log_message
