@@ -3,7 +3,7 @@ import re
 import binascii
 import threading
 from ollama import Client
-from config import BB_LINES_MAP_FILE
+from config import *
 from core.logger import log_message
 
 def load_bb_lines_map():
@@ -71,15 +71,30 @@ def extract_and_convert_hex(llm_output):
                 pass
     
     return None
-    
+
+llm_seed_counter = 0
+counter_lock = threading.Lock()
+
 def save_llm_seed(new_seed_content, output_dir, seed_id):
+    global llm_seed_counter
+
+    with counter_lock:
+        current_id = llm_seed_counter
+        llm_seed_counter += 1
+    
+    relative_time_sec = int(time.time()) - FUZZING_START_TIME
+
     llm_queue_dir = os.path.join(output_dir, "llm_node", "queue")
     os.makedirs(llm_queue_dir, exist_ok=True)
-    file_name = f"id:{seed_id:06d},src:000000,op:llm_gen"
+    file_name = f"id:{current_id:06d},src:{target_idx:03d},time:{relative_time_sec},op:llm_gen"
+
     file_path = os.path.join(llm_queue_dir, file_name)
-    with open(file_path, "wb") as f:
-        f.write(new_seed_content)
-    log_message(f"Seed injected to {file_path}")
+    try:
+        with open(file_path, "wb") as f:
+            f.write(new_seed_content)
+        log_message(f"Injected: {file_name}")
+    except Exception as e:
+        log_message(f"Save Seed Failed: {e}")
 
 # Limit concurrent LLM calls to prevent choking the endpoint
 llm_semaphore = threading.BoundedSemaphore(1)
