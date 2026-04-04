@@ -75,23 +75,23 @@ def extract_and_convert_hex(llm_output):
 llm_seed_counter = 0
 counter_lock = threading.Lock()
 
-def save_llm_seed(new_seed_content, output_dir, seed_id):
+def save_llm_seed(seed_content, output_dir, target_idx):
     global llm_seed_counter
 
     with counter_lock:
         current_id = llm_seed_counter
         llm_seed_counter += 1
     
-    relative_time_sec = int(time.time()) - FUZZING_START_TIME
+    relative_time_sec = int(time.time() - FUZZING_START_TIME)
 
     llm_queue_dir = os.path.join(output_dir, "llm_node", "queue")
     os.makedirs(llm_queue_dir, exist_ok=True)
-    file_name = f"id:{current_id:06d},src:{target_idx:03d},time:{relative_time_sec},op:llm_gen"
-
+    file_name = f"id:{current_id:06d},src:{target_idx:06d},time:{relative_time_sec:06d},op:llm_gen"
+    log_message(f"Saving LLM-generated seed to {file_name} in AFL queue...")
     file_path = os.path.join(llm_queue_dir, file_name)
     try:
         with open(file_path, "wb") as f:
-            f.write(new_seed_content)
+            f.write(seed_content)
         log_message(f"Injected: {file_name}")
     except Exception as e:
         log_message(f"Save Seed Failed: {e}")
