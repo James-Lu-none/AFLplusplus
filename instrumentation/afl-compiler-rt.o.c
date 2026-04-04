@@ -3754,7 +3754,7 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
       entry->path_len = copy_cnt;
       
       // save seed content and seed length
-      uint32_t copy_len = (*__afl_fuzz_len > MAX_SEED_SIZE) ? MAX_SEED_SIZE : *__afl_fuzz_len;
+      uint32_t copy_len = *__afl_fuzz_len;
       memcpy(entry->seed_content, __afl_fuzz_ptr, copy_len);
       entry->seed_len = copy_len;
     }
