@@ -1,17 +1,7 @@
 import threading
 import time
 import os
-from config import (
-    TARGET_PROCESS_NAME,
-    DIST_KV_SHM_NAME,
-    MAX_TARGETS,
-    DEFAULT_LLM_THRESHOLD,
-    MIN_LLM_THRESHOLD,
-    DEFAULT_LLM_ENDPOINT,
-    DEFAULT_LLM_MODEL,
-    TARGET_BB_MAP_FILE,
-    BB_LINES_MAP_FILE
-)
+from config import *
 from core.models import SharedDistKVStore
 from core.shm_handler import get_afl_shm_ptr
 from core.cfg_processor import load_bb_lines_map, load_target_bb_map

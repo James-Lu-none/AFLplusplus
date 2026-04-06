@@ -42,7 +42,7 @@ def get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5):
         return f"Source file {file} not found"
     with open(file, 'r') as f:
         lines = f.readlines()
-        return '\n'.join(lines[max(1, start-range_size):min(len(lines), end+range_size)])
+        return ''.join(lines[max(1, start-range_size):min(len(lines), end+range_size)])
 
 import re
 import binascii
@@ -114,26 +114,46 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
     if source_code_path is None:
         log_message("SOURCE_CODE_PATH is not set.")
         return
+    
+    # get harness context
+    harness_context = "N/A"
+    for file in os.listdir("."):
+        if file.startswith("harness") and (file.endswith(".c") or file.endswith(".cc")):
+            with open(file, "r") as f:
+                harness_context = f.read()
 
     # get source code snippet for last 5 basic blocks in path
     bb_map = load_bb_lines_map()
     code_snippet = []
     # use the snapshotted path_content
     for bb_id in path_content[-5:]:
-        code_snippet.append(f"BB {bb_id}:\n{get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5)}")
+        code_snippet.append(f"BB {bb_id}:\n```{get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5)}```")
     code_snippet = '\n'.join(code_snippet)
 
     # construct prompt from seed, cfg, and bb_info
     prompt = f"""
-    You are a expert in fuzzing and program analysis. please analyze the following information and suggest a new seed that might help the fuzzer reach new paths.
-    
-    current basic block ID: {last_bb_id}
-    current basic block info: {bb_info}
-    current seed: {seed_content}
-    current seed_hex: {seed_content.hex()}
+    # Role
+    You are an expert in fuzzing, vulnerability research, and program analysis.
 
-    source code of last 5 basic blocks in path:
+    # Task
+    Analyze the provided execution context and suggest a new seed to reach unexplored code paths.
+
+    # Execution Context
+    ## current seed: {seed_content}
+    ## current seed_hex: {seed_content.hex()}
+    ## source code of last 5 basic blocks in path:
     {code_snippet}
+    ## Harness context:
+    The following C code defines how the input 'data' is parsed and distributed to the target APIs. Pay close attention to offsets, delimiters, and data types.
+    ```c
+    {harness_context}
+    ```
+    
+    # Note
+    To avoid local optima, apply the following strategies:
+    Structural Awareness: Maintain the high-level structure required by the Harness, but radically change the internal values.
+    Boundary Testing: Inject extreme values (e.g., empty strings, maximum integers, deep nesting, or excessively long buffers).
+    Diversity: Do NOT provide a seed that is 90% similar to the current one. Focus on "High-Entropy" mutations.
     
     now Please provide the final generated seed strictly enclosed within <SEED> and </SEED> tags. Do not include spaces in the hex string.
     """
