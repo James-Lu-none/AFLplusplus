@@ -3743,10 +3743,6 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
 
     struct distance_entry *entry = &__afl_dist_shm->entries[id];
     if (dist == entry->min_distance) {
-      entry->target_id = id;
-      entry->min_distance = dist;
-      entry->last_bb_id = current_bb_id;
-      
       // save path and path length
       uint32_t copy_cnt = (__afl_global_path_idx > MAX_PATH_LENGTH) ? MAX_PATH_LENGTH : __afl_global_path_idx;
       memcpy(entry->path, __afl_global_path_buffer, copy_cnt * sizeof(uint32_t));
@@ -3757,6 +3753,9 @@ void __afl_report_target_batch(uint32_t count, uint32_t *data) {
       memcpy(entry->seed_content, __afl_fuzz_ptr, copy_len);
       entry->seed_len = copy_len;
     } else if (dist < entry->min_distance) {
+      entry->target_id = id;
+      entry->last_bb_id = current_bb_id;
+      entry->min_distance = dist;
       entry->is_active += 1;
     }
   }
