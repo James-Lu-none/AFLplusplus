@@ -130,6 +130,11 @@ def trigger_llm_call(target_idx, data, bb_info, endpoint, model):
         code_snippet.append(f"BB {bb_id}:\n```{get_bb_source_code(bb_id, bb_map, source_code_path, range_size=5)}```")
     code_snippet = '\n'.join(code_snippet)
 
+    # TODO: get current stuck conditions' cmplog information:
+    # next_bbs = data.get('next_bbs', [])
+    # next_conditions = []
+    # in prompt: Next possible conditions: {cmplog_info}
+
     # construct prompt from seed, cfg, and bb_info
     prompt = f"""
     # Role
