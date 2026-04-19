@@ -17,7 +17,7 @@ from core.shm_handler import (
     map_lock,
     dist_shm_ptr
 )
-from core.cfg_processor import load_cfg_data, load_cfg_with_graphviz, load_bb_lines_map, load_target_bb_map
+from core.cfg_processor import load_cfg_with_graphviz, load_bb_lines_map, load_target_bb_map
 from components.visuals import get_default_stylesheet, generate_coverage_heatmap
 from components.ui_layout import create_layout
 
