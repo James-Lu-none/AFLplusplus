@@ -4,7 +4,7 @@ import os
 from config import *
 from core.models import SharedDistKVStore
 from core.shm_handler import get_afl_shm_ptr
-from core.cfg_processor import load_bb_lines_map, load_target_bb_map
+from core.cfg_processor import load_bb_lines_map, load_target_bb_map, load_cfg_adj
 from llm import trigger_llm_call
 from core.logger import log_message
 
@@ -27,6 +27,7 @@ def monitor_loop():
     # Load metadata
     bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
     target_bb_map = load_target_bb_map(TARGET_BB_MAP_FILE)
+    cfg_adj = load_cfg_adj(CFG_EDGES_FILE)
     
     log_message(f"Monitor Thread: Started. Threshold={DEFAULT_LLM_THRESHOLD}s, Endpoint={DEFAULT_LLM_ENDPOINT}, Model={DEFAULT_LLM_MODEL}")
 
@@ -76,11 +77,16 @@ def monitor_loop():
                         target_timers[i] += 1
                 
                 if target_timers[i] >= llm_threshold:
+                    # Get next possible basic blocks from CFG
+                    last_bb_id = str(entry.last_bb_id)
+                    next_bbs = cfg_adj.get(last_bb_id, [])
+
                     # Snapshot data to pass to the thread
                     data_snapshot = {
                         'last_bb_id': entry.last_bb_id,
                         'path_content': list(entry.path_content[:entry.path_len]),
-                        'seed_content': bytes(entry.seed_content[:entry.seed_len])
+                        'seed_content': bytes(entry.seed_content[:entry.seed_len]),
+                        'next_bbs': next_bbs
                     }
                     
                     log_message(f"Monitor Thread: Target {i} stuck for {target_timers[i]}s. Triggering LLM.")
