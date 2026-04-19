@@ -13,7 +13,7 @@
 
 
    Copyright 2016, 2017 Google Inc. All rights reserved.
-   Copyright 2019-2024 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2026 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -56,6 +56,7 @@
 
 #ifdef __linux__
   #include <dlfcn.h>
+  #include <sys/prctl.h>
 
 /* function to load nyx_helper function from libnyx.so */
 
@@ -522,6 +523,10 @@ static void afl_fauxsrv_execv(afl_forkserver_t *fsrv, char **argv) {
     /* In child process: close fds, resume execution. */
 
     if (!child_pid) {  // New child
+
+#ifdef __linux__
+      prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
 
       if (fsrv->out_dir_fd >= 0) close(fsrv->out_dir_fd);
       if (fsrv->dev_null_fd >= 0) close(fsrv->dev_null_fd);
@@ -1001,6 +1006,10 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
   if (!fsrv->fsrv_pid) {
 
     /* CHILD PROCESS */
+
+#ifdef __linux__
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
 
     if (unlikely(fsrv->setenv)) { setenv("AFL_FORKSERVER_PARENT", "1", 0); }
 
@@ -1680,7 +1689,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
            "    - Less likely, there is a horrible bug in the fuzzer. If other "
            "options\n"
-           "      fail, poke the Awesome Fuzzing Discord for troubleshooting "
+           "      fail, poke the Fuzzing Zulip server for troubleshooting "
            "tips.\n");
 
     } else {
@@ -1725,7 +1734,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
            "    - Less likely, there is a horrible bug in the fuzzer. If other "
            "options\n"
-           "      fail, poke the Awesome Fuzzing Discord for troubleshooting "
+           "      fail, poke the Fuzzing Zulip server for troubleshooting "
            "tips.\n",
            stringify_mem_size(val_buf, sizeof(val_buf), fsrv->mem_limit << 20),
            fsrv->mem_limit - 1);
@@ -1775,7 +1784,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
          "      Retry with setting AFL_MAP_SIZE=10000000.\n\n"
 
          "Otherwise there is a horrible bug in the fuzzer.\n"
-         "Poke the Awesome Fuzzing Discord for troubleshooting tips.\n");
+         "Poke the Fuzzing Zulip server for troubleshooting tips.\n");
 
   } else {
 
@@ -1824,7 +1833,7 @@ void afl_fsrv_start(afl_forkserver_t *fsrv, char **argv,
 
         "    - Less likely, there is a horrible bug in the fuzzer. If other "
         "options\n"
-        "      fail, poke the Awesome Fuzzing Discord for troubleshooting "
+        "      fail, poke the Fuzzing Zulip server for troubleshooting "
         "tips.\n",
         getenv(DEFER_ENV_VAR)
             ? "    - You are using deferred forkserver, but __AFL_INIT() is "
@@ -2228,6 +2237,11 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
     if (python_pid < 0) { PFATAL("GUI mode fork failed."); }
     fsrv->gui_python_pid = python_pid;
     if (python_pid == 0) {  // child that will perform GUI interactions
+
+  #ifdef __linux__
+      prctl(PR_SET_PDEATHSIG, SIGKILL);
+  #endif
+
       ACTF("Non-forkserver exec'ing, with PID = %ld\n", (long)getpid());
       char gui_pid_str[16];
       sprintf(gui_pid_str, "%d",

@@ -5,7 +5,7 @@
    Written by Michal Zalewski, Laszlo Szekeres and Marc Heuse
 
    Copyright 2015, 2016 Google Inc. All rights reserved.
-   Copyright 2019-2024 AFLplusplus Project. All rights reserved.
+   Copyright 2019-2026 AFLplusplus Project. All rights reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -2032,12 +2032,6 @@ void add_sanitizers(aflcc_state_t *aflcc, char **envp) {
     if (getenv("AFL_HARDEN"))
       FATAL("ASAN and AFL_HARDEN are mutually exclusive");
 
-    if (aflcc->compiler_mode == GCC_PLUGIN && !aflcc->have_staticasan) {
-
-      insert_param(aflcc, "-static-libasan");
-
-    }
-
     add_defs_fortify(aflcc, 0);
     if (!aflcc->have_asan) {
 
@@ -2841,7 +2835,9 @@ param_st parse_misc_params(aflcc_state_t *aflcc, u8 *cur_argv, u8 scan) {
 
     SCAN_KEEP(aflcc->preprocessor_only, 1);
 
-  } else if (!strcmp(cur_argv, "--target=wasm32-wasi")) {
+  } else if (!strcmp(cur_argv, "--target=wasm32-wasi") ||
+
+             !strcmp(cur_argv, "--target=wasm32-wasip1")) {
 
     SCAN_KEEP(aflcc->passthrough, 1);
 
