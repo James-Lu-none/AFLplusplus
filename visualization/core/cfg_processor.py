@@ -47,54 +47,32 @@ def load_target_bb_map(file_path):
         print(f"Error reading target BB map file: {e}")
     return target_bb_map
 
-def load_cfg_data(file_path):
+def load_cfg_adj(file_path):
     """
-    Parses a CFG edge file and returns elements for Dash Cytoscape.
+    Parses a CFG edge file and returns a dictionary mapping bb_id to a list of successor bb_ids.
     """
-    elements = []
-    nodes = set()
-    bb_map = load_bb_lines_map(BB_LINES_MAP_FILE)
-    
+    adj = {}
+    if not os.path.exists(file_path):
+        return adj
+
     # Pattern for lines such as: %node1, %node2, [label]
     edge_pattern = re.compile(r"%?([\w\.]+),\s*%?([\w\.]+),\s*\[(.*)\]")
     
-    if not os.path.exists(file_path):
-        return []
-
     try:
         with open(file_path, "r") as f:
             for line in f:
                 match = edge_pattern.search(line)
                 if match:
                     u, v, cond = match.groups()
-                    for node_id in [u, v]:
-                        if node_id not in nodes:
-                            label = f"BB {node_id}"
-                            if node_id in bb_map:
-                                file, start, end = bb_map[node_id]
-                                label = f"{file}:{start}-{end} ({node_id})"
-                            
-                            elements.append({'data': {'id': node_id, 'label': label}})
-                            nodes.add(node_id)
-
-                    color = "#888" # Default color
-                    if "(TRUE)" in cond: 
-                        color = "#28a745" # Success color
-                    elif "(FALSE)" in cond: 
-                        color = "#dc3545" # Error color
-                    
-                    elements.append({
-                        'data': {
-                            'source': u, 
-                            'target': v, 
-                            'label': cond if cond != "none" else "",
-                            'color': color
-                        }
-                    })
+                    if u not in adj:
+                        adj[u] = []
+                    if v not in adj[u]:
+                        adj[u].append(v)
     except Exception as e:
-        print(f"Error reading CFG file: {e}")
-        
-    return elements
+        print(f"Error reading CFG file for adjacency: {e}")
+    
+    # adj contains: {bb_id: [succ_bb_id1, succ_bb_id2, ...], bb_id2: [...], ...}
+    return adj
 
 def load_cfg_with_graphviz(file_path, top_n=0):
     G = nx.DiGraph()
