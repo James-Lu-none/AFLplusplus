@@ -294,6 +294,9 @@ class ModuleSanitizerCoverageLTO
   BasicBlock                      *dgf_TargetBB = nullptr;
   std::set<BasicBlock *>           dgf_ControlBBs;
   std::set<BasicBlock *>           dgf_CallerBBs;
+  std::vector<BasicBlock *>        dgf_EdgeInstrumentedBBs;
+  std::vector<BasicBlock *>        dgf_PrunedBBs;
+  uint32_t                         dgf_total_pruned_blocks = 0;
   // DGF END
   // AFL++ END
 
@@ -454,10 +457,18 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   dgf_TargetBB = nullptr;
   dgf_ControlBBs.clear();
   dgf_CallerBBs.clear();
+  dgf_EdgeInstrumentedBBs.clear();
+  dgf_PrunedBBs.clear();
+  dgf_total_pruned_blocks = 0;
 
   char *dgf_file = getenv("AFL_DGF_FILE");
   char *dgf_line_str = getenv("AFL_DGF_LINE");
   char *dgf_func = getenv("AFL_DGF_FUNC");
+
+  fprintf(stderr, "DGF: Config - FILE=%s, FUNC=%s, LINE=%s\n",
+          dgf_file ? dgf_file : "NULL",
+          dgf_func ? dgf_func : "NULL",
+          dgf_line_str ? dgf_line_str : "NULL");
 
   if (dgf_file || dgf_func) {
     dgf_enabled = true;
@@ -495,9 +506,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     }
 
     if (dgf_TargetBB) {
-      if (!be_quiet) {
-        SAYF(cCYA "DGF: TargetBB found in function %s\n" cRST, dgf_TargetBB->getParent()->getName().str().c_str());
-      }
+      fprintf(stderr, "DGF: TargetBB found in function %s with max_depth = %d\n", dgf_TargetBB->getParent()->getName().str().c_str(), max_depth);
       
       // 2. Initialization
       std::vector<std::pair<BasicBlock *, int>> WorkList;
@@ -570,13 +579,9 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
           }
         }
       }
-      if (!be_quiet) {
-        SAYF(cCYA "DGF Analysis finished. Found %zu ControlBBs, %zu CallerBBs.\n" cRST, dgf_ControlBBs.size(), dgf_CallerBBs.size());
-      }
+      fprintf(stderr, "DGF: Analysis complete. Found %zu ControlBBs, %zu CallerBBs.\n", dgf_ControlBBs.size(), dgf_CallerBBs.size());
     } else {
-      if (!be_quiet) {
-        WARNF("DGF TargetBB not found. Falling back to standard LTO coverage.\n");
-      }
+      fprintf(stderr, "DGF: TargetBB not found. Disabling DGF.\n");
       dgf_enabled = false;
     }
   }
@@ -1662,6 +1667,107 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   // so we need to prevent them from being dead stripped.
   if (TargetTriple.isOSBinFormatMachO()) appendToUsed(M, GlobalsToAppendToUsed);
   appendToCompilerUsed(M, GlobalsToAppendToCompilerUsed);
+
+  if (dgf_enabled) {
+    char *info_file_name = getenv("AFL_DGF_INFO_FILE");
+    if (!info_file_name) {
+      info_file_name = (char *)"dgf_compile_info.txt";
+    }
+    FILE *f_info = fopen(info_file_name, "w");
+    if (f_info) {
+      fprintf(f_info, "=== DGF Compilation Summary ===\n");
+      if (dgf_TargetBB) {
+        std::string loc = "";
+        for (const Instruction &I : *dgf_TargetBB) {
+          if (const DILocation *Loc = I.getDebugLoc()) {
+            loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+            break;
+          }
+        }
+        fprintf(f_info, "TargetBB: Function=%s, Location=%s\n\n", 
+                dgf_TargetBB->getParent()->getName().str().c_str(), 
+                loc.empty() ? "<no debug info>" : loc.c_str());
+      }
+      
+      // 1. How many ControlBBs and CallerBBs
+      fprintf(f_info, "1. Number of Control BBs (Heavy Instrumented): %zu\n", dgf_ControlBBs.size());
+      fprintf(f_info, "   Number of Caller BBs (Navigation Instrumented): %zu\n\n", dgf_CallerBBs.size());
+      
+      // 2. Which ControlBBs and CallerBBs
+      fprintf(f_info, "2. Details of Control BBs and Caller BBs:\n");
+      fprintf(f_info, "   --- Control BBs ---\n");
+      for (auto *BB : dgf_ControlBBs) {
+        std::string loc = "";
+        for (const Instruction &I : *BB) {
+          if (const DILocation *Loc = I.getDebugLoc()) {
+            loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+            break;
+          }
+        }
+        fprintf(f_info, "     - Function: %s, Block: %s, Location: %s\n", 
+                BB->getParent()->getName().str().c_str(), 
+                BB->getName().str().c_str(),
+                loc.empty() ? "<no debug info>" : loc.c_str());
+      }
+      fprintf(f_info, "   --- Caller BBs ---\n");
+      for (auto *BB : dgf_CallerBBs) {
+        std::string loc = "";
+        for (const Instruction &I : *BB) {
+          if (const DILocation *Loc = I.getDebugLoc()) {
+            loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+            break;
+          }
+        }
+        fprintf(f_info, "     - Function: %s, Block: %s, Location: %s\n", 
+                BB->getParent()->getName().str().c_str(), 
+                BB->getName().str().c_str(),
+                loc.empty() ? "<no debug info>" : loc.c_str());
+      }
+      fprintf(f_info, "\n");
+      
+      // 3. How many basic blocks were edge instrumented
+      fprintf(f_info, "3. Total Basic Blocks Edge-Instrumented: %zu\n\n", dgf_EdgeInstrumentedBBs.size());
+      
+      // 4. Which basic blocks were edge instrumented
+      fprintf(f_info, "4. List of Edge-Instrumented Basic Blocks:\n");
+      for (auto *BB : dgf_EdgeInstrumentedBBs) {
+        std::string loc = "";
+        for (const Instruction &I : *BB) {
+          if (const DILocation *Loc = I.getDebugLoc()) {
+            loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+            break;
+          }
+        }
+        fprintf(f_info, "     - Function: %s, Block: %s, Location: %s\n", 
+                BB->getParent()->getName().str().c_str(), 
+                BB->getName().str().c_str(),
+                loc.empty() ? "<no debug info>" : loc.c_str());
+      }
+      fprintf(f_info, "\n");
+      
+      // 5. How many basic blocks were pruned/removed due to DGF control flow dependencies
+      fprintf(f_info, "5. Total Basic Blocks Pruned/Removed by DGF: %u\n\n", dgf_total_pruned_blocks);
+      
+      // 6. List of Blocks Pruned/Removed by DGF
+      fprintf(f_info, "6. List of Blocks Pruned/Removed by DGF:\n");
+      for (auto *BB : dgf_PrunedBBs) {
+        std::string loc = "";
+        for (const Instruction &I : *BB) {
+          if (const DILocation *Loc = I.getDebugLoc()) {
+            loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+            break;
+          }
+        }
+        fprintf(f_info, "     - Function: %s, Block: %s, Location: %s\n", 
+                BB->getParent()->getName().str().c_str(), 
+                BB->getName().str().c_str(),
+                loc.empty() ? "<no debug info>" : loc.c_str());
+      }
+      
+      fclose(f_info);
+    }
+  }
+
   return true;
 
 }
@@ -2625,14 +2731,12 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
       if (func_contains_dgf) {
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
           BlocksToInstrument.push_back(&BB);
+      } else {
+        if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
+          dgf_total_pruned_blocks++;
+          dgf_PrunedBBs.push_back(&BB);
+        }
       }
-
-      // // prune edge coverage for BBs that are not in our dgf block set: might be too strict
-      // bool in_dgf_set = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0 || dgf_CallerBBs.count(&BB) > 0);
-      // if (in_dgf_set) {
-      //   if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
-      //     BlocksToInstrument.push_back(&BB);
-      // }
     } else {
       if (!instrument_ctx || call_counter <= 1)
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
@@ -2646,6 +2750,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
   if (path_mode) { analyzePathCoverage(F); }
 
   InjectCoverage(F, BlocksToInstrument, IsLeafFunc);
+  for (auto *BB : BlocksToInstrument) {
+    dgf_EdgeInstrumentedBBs.push_back(BB);
+  }
   // InjectCoverageForIndirectCalls(F, IndirCalls);
 
   /*if (debug)
