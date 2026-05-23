@@ -2802,6 +2802,10 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
 
   IRBuilder<> IRB(&*IP);
+  if (dgf_enabled && &BB == dgf_TargetBB) {
+    FunctionCallee TargetHitFn = CurModule->getOrInsertFunction("__afl_dgf_target_hit", Type::getVoidTy(*C));
+    IRB.CreateCall(TargetHitFn);
+  }
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
