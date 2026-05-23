@@ -2614,11 +2614,25 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     }
 
     if (dgf_enabled) {
-      bool in_dgf_set = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0 || dgf_CallerBBs.count(&BB) > 0);
-      if (in_dgf_set) {
+      // prune edge coverage for functions that doesn't contains any BB in our dgf set
+      bool func_contains_dgf = false;
+      for (auto &bb : F) {
+        if (&bb == dgf_TargetBB || dgf_ControlBBs.count(&bb) > 0 || dgf_CallerBBs.count(&bb) > 0) {
+          func_contains_dgf = true;
+          break;
+        }
+      }
+      if (func_contains_dgf) {
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
           BlocksToInstrument.push_back(&BB);
       }
+
+      // // prune edge coverage for BBs that are not in our dgf block set: might be too strict
+      // bool in_dgf_set = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0 || dgf_CallerBBs.count(&BB) > 0);
+      // if (in_dgf_set) {
+      //   if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+      //     BlocksToInstrument.push_back(&BB);
+      // }
     } else {
       if (!instrument_ctx || call_counter <= 1)
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
