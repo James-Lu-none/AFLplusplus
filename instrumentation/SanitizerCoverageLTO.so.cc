@@ -13,6 +13,10 @@
 #include <fstream>
 #include <set>
 #include <iostream>
+#include <map>
+#include <vector>
+#include "llvm/IR/DebugInfoMetadata.h"
+
 
 #include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -285,6 +289,12 @@ class ModuleSanitizerCoverageLTO
   std::ofstream                    dFile;
   size_t                           found = 0;
   bool                             deny_exec = false;
+  // DGF START
+  bool                             dgf_enabled = false;
+  BasicBlock                      *dgf_TargetBB = nullptr;
+  std::set<BasicBlock *>           dgf_ControlBBs;
+  std::set<BasicBlock *>           dgf_CallerBBs;
+  // DGF END
   // AFL++ END
 
 };
@@ -408,10 +418,168 @@ PreservedAnalyses ModuleSanitizerCoverageLTO::run(Module                &M,
 
 }
 
+static bool matchDebugLoc(const BasicBlock &BB, const std::string &TargetFile, unsigned TargetLine) {
+  for (const Instruction &I : BB) {
+    if (const DILocation *Loc = I.getDebugLoc()) {
+      std::string Filename = Loc->getFilename().str();
+      if (Filename.find(TargetFile) != std::string::npos && Loc->getLine() == TargetLine) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool matchFuncLoc(const BasicBlock &BB, const std::string &TargetFunc, unsigned TargetLine = 0) {
+  const Function *F = BB.getParent();
+  if (F && F->getName().str() == TargetFunc) {
+    if (TargetLine == 0) return true;
+    for (const Instruction &I : BB) {
+      if (const DILocation *Loc = I.getDebugLoc()) {
+        if (Loc->getLine() == TargetLine) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 bool ModuleSanitizerCoverageLTO::instrumentModule(
     Module &M, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
   if (Options.CoverageType == SanitizerCoverageOptions::SCK_None) return false;
+
+  dgf_enabled = false;
+  dgf_TargetBB = nullptr;
+  dgf_ControlBBs.clear();
+  dgf_CallerBBs.clear();
+
+  char *dgf_file = getenv("AFL_DGF_FILE");
+  char *dgf_line_str = getenv("AFL_DGF_LINE");
+  char *dgf_func = getenv("AFL_DGF_FUNC");
+
+  if (dgf_file || dgf_func) {
+    dgf_enabled = true;
+    unsigned dgf_line = 0;
+    if (dgf_line_str) {
+      dgf_line = atoi(dgf_line_str);
+    }
+
+    // 1. Locate TargetBB
+    for (auto &F : M) {
+      if (F.isDeclaration() || F.empty()) continue;
+      for (auto &BB : F) {
+        bool is_target = false;
+        if (dgf_file && dgf_line > 0) {
+          if (matchDebugLoc(BB, dgf_file, dgf_line)) {
+            is_target = true;
+          }
+        } else if (dgf_func) {
+          if (matchFuncLoc(BB, dgf_func, dgf_line)) {
+            is_target = true;
+          }
+        }
+        if (is_target) {
+          dgf_TargetBB = &BB;
+          break;
+        }
+      }
+      if (dgf_TargetBB) break;
+    }
+
+    int max_depth = 5;
+    char *depth_str = getenv("AFL_DGF_MAX_DEPTH");
+    if (depth_str) {
+      max_depth = atoi(depth_str);
+    }
+
+    if (dgf_TargetBB) {
+      if (!be_quiet) {
+        SAYF(cCYA "DGF: TargetBB found in function %s\n" cRST, dgf_TargetBB->getParent()->getName().str().c_str());
+      }
+      
+      // 2. Initialization
+      std::vector<std::pair<BasicBlock *, int>> WorkList;
+      std::set<BasicBlock *> Visited;
+      
+      WorkList.push_back({dgf_TargetBB, 0});
+      Visited.insert(dgf_TargetBB);
+
+      while (!WorkList.empty()) {
+        auto Item = WorkList.back();
+        WorkList.pop_back();
+        BasicBlock *CurrentBB = Item.first;
+        int depth = Item.second;
+
+        Function *F = CurrentBB->getParent();
+        if (!F || F->isDeclaration() || F->empty()) continue;
+
+        // 3. Extraction & RDF/PDF Computation
+        const PostDominatorTree *PDT = PDTCallback(*F);
+        if (!PDT) continue;
+
+        // Compute Post Dominance Frontier (PDF) for current function
+        std::map<BasicBlock *, std::set<BasicBlock *>> PDF;
+        for (auto &Y : *F) {
+          if (succ_size(&Y) > 1) {
+            DomTreeNodeBase<BasicBlock> *NodeY = PDT->getNode(&Y);
+            if (!NodeY) continue;
+            DomTreeNodeBase<BasicBlock> *IPDomNode = NodeY->getIDom();
+            BasicBlock *IPDomY = IPDomNode ? IPDomNode->getBlock() : nullptr;
+
+            for (BasicBlock *S : successors(&Y)) {
+              BasicBlock *Runner = S;
+              while (Runner && Runner != IPDomY) {
+                PDF[Runner].insert(&Y);
+                DomTreeNodeBase<BasicBlock> *RunnerNode = PDT->getNode(Runner);
+                DomTreeNodeBase<BasicBlock> *ParentNode = RunnerNode ? RunnerNode->getIDom() : nullptr;
+                Runner = ParentNode ? ParentNode->getBlock() : nullptr;
+              }
+            }
+          }
+        }
+
+        // 4. Control Dependency Resolution & Scheduling
+        auto it = PDF.find(CurrentBB);
+        if (it != PDF.end() && !it->second.empty()) {
+          // Branch A [Found regional controller]
+          for (BasicBlock *ControlBB : it->second) {
+            dgf_ControlBBs.insert(ControlBB);
+            if (Visited.count(ControlBB) == 0) {
+              Visited.insert(ControlBB);
+              WorkList.push_back({ControlBB, depth}); // Local control keeps the same depth
+            }
+          }
+        } else {
+          // Branch B [Inter-procedural Leap]
+          if (depth < max_depth) {
+            for (auto *U : F->users()) {
+              if (isa<CallInst>(U) || isa<InvokeInst>(U)) {
+                Instruction *Inst = cast<Instruction>(U);
+                BasicBlock *CallerBB = Inst->getParent();
+                if (CallerBB) {
+                  dgf_CallerBBs.insert(CallerBB);
+                  if (Visited.count(CallerBB) == 0) {
+                    Visited.insert(CallerBB);
+                    WorkList.push_back({CallerBB, depth + 1}); // Hop to caller increments depth
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (!be_quiet) {
+        SAYF(cCYA "DGF Analysis finished. Found %zu ControlBBs, %zu CallerBBs.\n" cRST, dgf_ControlBBs.size(), dgf_CallerBBs.size());
+      }
+    } else {
+      if (!be_quiet) {
+        WARNF("DGF TargetBB not found. Falling back to standard LTO coverage.\n");
+      }
+      dgf_enabled = false;
+    }
+  }
   /*
     if (Allowlist &&
         !Allowlist->inSection("coverage", "src", MNAME))
@@ -2202,6 +2370,12 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       }
 
+      if (dgf_enabled) {
+        // Heavy instrumentation only on TargetBB and ControlBBs. Navigation blocks (CallerBBs) get no comparison/select instrumentation feedback.
+        bool is_heavy = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0);
+        if (!is_heavy) continue;
+      }
+
       if (!isAflCovInterestingInstruction(IN)) continue;
 
 #if 0
@@ -2439,10 +2613,17 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
-    if (!instrument_ctx || call_counter <= 1)
-      if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
-        BlocksToInstrument.push_back(&BB);
-
+    if (dgf_enabled) {
+      bool in_dgf_set = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0 || dgf_CallerBBs.count(&BB) > 0);
+      if (in_dgf_set) {
+        if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+          BlocksToInstrument.push_back(&BB);
+      }
+    } else {
+      if (!instrument_ctx || call_counter <= 1)
+        if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+          BlocksToInstrument.push_back(&BB);
+    }
   }
 
   /* PATH analysis must run BEFORE InjectCoverage so that the guard-only
