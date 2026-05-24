@@ -2720,8 +2720,11 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
-    if (dgf_enabled) {
+    if (dgf_enabled && shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
       // prune edge coverage for functions that doesn't contains any BB in our dgf set
+      // !! after testing, pruning edge coverage for functions that doesn't contains
+      // any BB in our dgf set will cause fuzzer unable to detect anything that is outside
+      // the control and caller BBs, making it finish very early
       bool func_contains_dgf = false;
       for (auto &bb : F) {
         if (&bb == dgf_TargetBB || dgf_ControlBBs.count(&bb) > 0 || dgf_CallerBBs.count(&bb) > 0) {
@@ -2729,14 +2732,21 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
           break;
         }
       }
-      if (func_contains_dgf) {
-        if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
-          BlocksToInstrument.push_back(&BB);
-      } else {
-        if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
-          dgf_total_pruned_blocks++;
-          dgf_PrunedBBs.push_back(&BB);
-        }
+      // if (func_contains_dgf || (F.getName() == "main" && &BB == &F.getEntryBlock()) {
+      //     BlocksToInstrument.push_back(&BB);
+      // } else {
+      //   if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
+      //     dgf_total_pruned_blocks++;
+      //     dgf_PrunedBBs.push_back(&BB);
+      //   }
+      // }
+
+      // !! still keep all bb
+      BlocksToInstrument.push_back(&BB);
+      if (!func_contains_dgf && !(F.getName() == "main" && &BB == &F.getEntryBlock())) {
+        // still record "should prune" basic blocks
+        dgf_total_pruned_blocks++;
+        dgf_PrunedBBs.push_back(&BB);
       }
     } else {
       if (!instrument_ctx || call_counter <= 1)
