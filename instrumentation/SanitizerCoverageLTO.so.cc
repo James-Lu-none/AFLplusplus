@@ -297,6 +297,8 @@ class ModuleSanitizerCoverageLTO
   std::vector<BasicBlock *>        dgf_EdgeInstrumentedBBs;
   std::vector<BasicBlock *>        dgf_PrunedBBs;
   uint32_t                         dgf_total_pruned_blocks = 0;
+  std::map<BasicBlock *, uint32_t> dgf_BlockIDs;
+  std::map<BasicBlock *, std::string> dgf_BlockTypes;
   // DGF END
   // AFL++ END
 
@@ -581,6 +583,52 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         }
       }
       fprintf(stderr, "DGF: Analysis complete. Found %zu ControlBBs, %zu CallerBBs.\n", dgf_ControlBBs.size(), dgf_CallerBBs.size());
+
+      uint32_t dgf_next_block_id = 0;
+      dgf_BlockIDs.clear();
+      dgf_BlockTypes.clear();
+
+      for (auto &F : M) {
+        if (F.isDeclaration() || F.empty()) continue;
+        for (auto &BB : F) {
+          bool is_control = (dgf_ControlBBs.count(&BB) > 0);
+          bool is_caller = (dgf_CallerBBs.count(&BB) > 0);
+          if (is_control || is_caller) {
+            dgf_BlockIDs[&BB] = dgf_next_block_id++;
+            dgf_BlockTypes[&BB] = is_control ? "Control" : "Caller";
+          }
+        }
+      }
+
+      char *mapping_file_name = getenv("AFL_DGF_BLOCK_MAPPING_FILE");
+      if (!mapping_file_name) {
+        mapping_file_name = (char *)"dgf_block_mapping.txt";
+      }
+      FILE *f_map = fopen(mapping_file_name, "w");
+      if (f_map) {
+        fprintf(f_map, "ID,Type,Function,Location\n");
+        for (auto &F : M) {
+          if (F.isDeclaration() || F.empty()) continue;
+          for (auto &BB : F) {
+            if (dgf_BlockIDs.count(&BB) > 0) {
+              uint32_t id = dgf_BlockIDs[&BB];
+              std::string type = dgf_BlockTypes[&BB];
+              std::string loc = "";
+              for (const Instruction &I : BB) {
+                if (const DILocation *Loc = I.getDebugLoc()) {
+                  loc = Loc->getFilename().str() + ":" + std::to_string(Loc->getLine());
+                  break;
+                }
+              }
+              fprintf(f_map, "%u,%s,%s,%s\n",
+                      id, type.c_str(),
+                      F.getName().str().c_str(),
+                      loc.empty() ? "<no debug info>" : loc.c_str());
+            }
+          }
+        }
+        fclose(f_map);
+      }
     } else {
       fprintf(stderr, "DGF: TargetBB not found. Disabling DGF.\n");
       dgf_enabled = false;
@@ -2923,6 +2971,12 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   if (dgf_enabled && &BB == dgf_TargetBB) {
     FunctionCallee TargetHitFn = CurModule->getOrInsertFunction("__afl_dgf_target_hit", Type::getVoidTy(*C));
     IRB.CreateCall(TargetHitFn);
+  }
+  if (dgf_enabled && dgf_BlockIDs.count(&BB) > 0) {
+    uint32_t id = dgf_BlockIDs[&BB];
+    uint32_t type = (dgf_BlockTypes[&BB] == "Control") ? 0 : 1;
+    FunctionCallee BlockHitFn = CurModule->getOrInsertFunction("__afl_dgf_block_hit", Type::getVoidTy(*C), Type::getInt32Ty(*C), Type::getInt32Ty(*C));
+    IRB.CreateCall(BlockHitFn, {ConstantInt::get(Type::getInt32Ty(*C), type), ConstantInt::get(Type::getInt32Ty(*C), id)});
   }
   if (Options.TracePC) {
 
