@@ -601,10 +601,18 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       }
 
       char *mapping_file_name = getenv("AFL_DGF_BLOCK_MAPPING_FILE");
-      if (!mapping_file_name) {
-        mapping_file_name = (char *)"dgf_block_mapping.txt";
+      std::string map_path;
+      if (mapping_file_name) {
+        map_path = mapping_file_name;
+      } else {
+        char *info_dir = getenv("AFL_DGF_INFO_DIR");
+        if (info_dir && info_dir[0] != '\0') {
+          map_path = std::string(info_dir) + "/dgf_block_mapping.txt";
+        } else {
+          map_path = "dgf_block_mapping.txt";
+        }
       }
-      FILE *f_map = fopen(mapping_file_name, "w");
+      FILE *f_map = fopen(map_path.c_str(), "w");
       if (f_map) {
         fprintf(f_map, "ID,Type,Function,Location\n");
         for (auto &F : M) {
@@ -1719,10 +1727,18 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   if (dgf_enabled) {
     char *info_file_name = getenv("AFL_DGF_INFO_FILE");
-    if (!info_file_name) {
-      info_file_name = (char *)"dgf_compile_info.txt";
+    std::string info_path;
+    if (info_file_name) {
+      info_path = info_file_name;
+    } else {
+      char *info_dir = getenv("AFL_DGF_INFO_DIR");
+      if (info_dir && info_dir[0] != '\0') {
+        info_path = std::string(info_dir) + "/dgf_compile_info.txt";
+      } else {
+        info_path = "dgf_compile_info.txt";
+      }
     }
-    FILE *f_info = fopen(info_file_name, "w");
+    FILE *f_info = fopen(info_path.c_str(), "w");
     if (f_info) {
       fprintf(f_info, "=== DGF Compilation Summary ===\n");
       if (dgf_TargetBB) {

@@ -22,6 +22,15 @@ static unsigned long long get_current_time_ms(void) {
   return (unsigned long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
+static void get_dgf_filepath(const char *filename, char *out_path, size_t max_len) {
+  char *info_dir = getenv("AFL_DGF_INFO_DIR");
+  if (info_dir && info_dir[0] != '\0') {
+    snprintf(out_path, max_len, "%s/%s", info_dir, filename);
+  } else {
+    snprintf(out_path, max_len, "%s", filename);
+  }
+}
+
 void __afl_dgf_target_hit(void);
 void __afl_dgf_block_hit(unsigned int type, unsigned int id);
 
@@ -33,7 +42,9 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
   __afl_dgf_start_time = get_current_time_ms();
 
   // Create/open shared memory backing file and map it
-  int fd = open("dgf_shm.bin", O_RDWR | O_CREAT, 0644);
+  char shm_path[512];
+  get_dgf_filepath("dgf_shm.bin", shm_path, sizeof(shm_path));
+  int fd = open(shm_path, O_RDWR | O_CREAT, 0644);
   if (fd >= 0) {
     struct stat st;
     if (fstat(fd, &st) == 0 && st.st_size < MAX_DGF_BLOCKS) {
@@ -49,9 +60,11 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
   }
 
   // Initialize output file for block hit log if not already created
-  FILE *check = fopen("dgf_blocks_hit.txt", "r");
+  char hit_path[512];
+  get_dgf_filepath("dgf_blocks_hit.txt", hit_path, sizeof(hit_path));
+  FILE *check = fopen(hit_path, "r");
   if (!check) {
-    FILE *f = fopen("dgf_blocks_hit.txt", "w");
+    FILE *f = fopen(hit_path, "w");
     if (f) {
       fprintf(f, "Type,ID,ElapsedMS\n");
       fclose(f);
@@ -70,7 +83,9 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
 
 __attribute__((used)) void __afl_dgf_target_hit(void) {
   // Check if target reached file already exists to avoid redundant writes
-  FILE *check = fopen("dgf_target_reached.txt", "r");
+  char reached_path[512];
+  get_dgf_filepath("dgf_target_reached.txt", reached_path, sizeof(reached_path));
+  FILE *check = fopen(reached_path, "r");
   if (check) {
     fclose(check);
     return;
@@ -99,7 +114,7 @@ __attribute__((used)) void __afl_dgf_target_hit(void) {
     snprintf(hit_time_str, sizeof(hit_time_str), "unknown");
   }
 
-  FILE *f = fopen("dgf_target_reached.txt", "w");
+  FILE *f = fopen(reached_path, "w");
   if (f) {
     fprintf(f, "Target reached!\n");
     fprintf(f, "Start Time: %s (%llu ms)\n", start_time_str, __afl_dgf_start_time);
@@ -130,7 +145,9 @@ __attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int i
       unsigned long long hit_time_ms = get_current_time_ms();
       unsigned long long elapsed_ms = hit_time_ms - __afl_dgf_start_time;
 
-      FILE *f = fopen("dgf_blocks_hit.txt", "a");
+      char hit_path[512];
+      get_dgf_filepath("dgf_blocks_hit.txt", hit_path, sizeof(hit_path));
+      FILE *f = fopen(hit_path, "a");
       if (f) {
         fprintf(f, "%u,%u,%llu\n", type, id, elapsed_ms);
         fclose(f);
