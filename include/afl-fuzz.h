@@ -316,6 +316,10 @@ struct queue_entry {
                       /*   1: explored                    */
   fs_meta_t *fs_meta;                   /* Frameshift metadata              */
 
+  u8 dgf_has_target;
+  u8 dgf_has_control;
+  u8 dgf_has_caller;
+
 };
 
 struct extra_data {
@@ -971,6 +975,8 @@ typedef struct afl_state {
   u8              is_doing_ijon;      /* Flag to track IJON execution state */
   dynamic_shared_access_t
       *ijon_shared_access;         /* IJON shared access for dynamic offset */
+
+  u8             *dgf_block_types;     /* DGF block types: 0=none, 1=Target, 2=Control, 3=Caller */
 
 } afl_state_t;
 

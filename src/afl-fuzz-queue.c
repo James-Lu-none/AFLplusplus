@@ -1575,6 +1575,20 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
 
   }
 
+  if (afl->dgf_block_types && !getenv("AFL_DGF_CONTROL_GROUP")) {
+    if (q->dgf_has_target) {
+      perf_score *= 5.0;
+    } else if (q->dgf_has_control) {
+      char *boost_env = getenv("AFL_DGF_PRIORITY_BOOST");
+      double boost_factor = boost_env ? atof(boost_env) : 3.0;
+      perf_score *= boost_factor;
+    } else if (q->dgf_has_caller) {
+      char *caller_env = getenv("AFL_DGF_CALLER_BOOST");
+      double caller_factor = caller_env ? atof(caller_env) : 1.5;
+      perf_score *= caller_factor;
+    }
+  }
+
   return perf_score;
 
 }
