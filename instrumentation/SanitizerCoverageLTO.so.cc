@@ -2477,7 +2477,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       }
 
-      if (dgf_enabled) {
+      if (dgf_enabled && !getenv("AFL_DGF_CONTROL_GROUP")) {
         // Heavy instrumentation only on TargetBB and ControlBBs. Navigation blocks (CallerBBs) get no comparison/select instrumentation feedback.
         bool is_heavy = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0);
         if (!is_heavy) continue;
