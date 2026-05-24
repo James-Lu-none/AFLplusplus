@@ -8,6 +8,9 @@ unsigned char __afl_lto_mode = 0;
 
 static unsigned long long __afl_dgf_start_time = 0;
 
+#define MAX_DGF_BLOCKS 1048576
+static unsigned char __afl_dgf_blocks_hit[MAX_DGF_BLOCKS] = {0};
+
 static unsigned long long get_current_time_ms(void) {
   struct timeval tv;
   gettimeofday(&tv, NULL);
@@ -15,6 +18,7 @@ static unsigned long long get_current_time_ms(void) {
 }
 
 void __afl_dgf_target_hit(void);
+void __afl_dgf_block_hit(unsigned int type, unsigned int id);
 
 __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
 
@@ -23,9 +27,18 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
 
   __afl_dgf_start_time = get_current_time_ms();
 
-  // Volatile reference to prevent __afl_dgf_target_hit from being optimized out by LTO
-  void (*volatile dummy)(void) = __afl_dgf_target_hit;
-  (void)dummy;
+  // Initialize output file for block hit log
+  FILE *f = fopen("dgf_blocks_hit.txt", "w");
+  if (f) {
+    fprintf(f, "Type,ID,ElapsedMS\n");
+    fclose(f);
+  }
+
+  // Volatile references to prevent hit handlers from being optimized out by LTO
+  void (*volatile dummy1)(void) = __afl_dgf_target_hit;
+  void (*volatile dummy2)(unsigned int, unsigned int) = __afl_dgf_block_hit;
+  (void)dummy1;
+  (void)dummy2;
 
 }
 
@@ -72,5 +85,23 @@ __attribute__((used)) void __afl_dgf_target_hit(void) {
   fprintf(stderr, "[DGF] Start Time: %s\n", start_time_str);
   fprintf(stderr, "[DGF] Hit Time:   %s\n", hit_time_str);
   fprintf(stderr, "[DGF] Elapsed:    %.3f seconds\n", (double)elapsed_ms / 1000.0);
+}
+
+__attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int id) {
+  if (id >= MAX_DGF_BLOCKS) return;
+  if (__afl_dgf_blocks_hit[id]) return;
+  __afl_dgf_blocks_hit[id] = 1;
+
+  unsigned long long hit_time_ms = get_current_time_ms();
+  unsigned long long elapsed_ms = hit_time_ms - __afl_dgf_start_time;
+
+  FILE *f = fopen("dgf_blocks_hit.txt", "a");
+  if (f) {
+    fprintf(f, "%u,%u,%llu\n", type, id, elapsed_ms);
+    fclose(f);
+  }
+  if (getenv("AFL_DEBUG")) {
+    fprintf(stderr, "[DGF] Block hit: Type=%u, ID=%u, Elapsed=%llu ms\n", type, id, elapsed_ms);
+  }
 }
 
