@@ -511,6 +511,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       // 2. Initialization
       std::vector<std::pair<BasicBlock *, int>> WorkList;
       std::set<BasicBlock *> Visited;
+      std::set<Function *> VisitedFunctions;
       
       WorkList.push_back({dgf_TargetBB, 0});
       Visited.insert(dgf_TargetBB);
@@ -549,32 +550,32 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
           }
         }
 
-        // 4. Control Dependency Resolution & Scheduling
+        // 4. Inter-procedural Leap (Always attempt to climb callers for any function we reach)
+        if (depth < max_depth && VisitedFunctions.count(F) == 0) {
+          VisitedFunctions.insert(F);
+          for (auto *U : F->users()) {
+            if (isa<CallInst>(U) || isa<InvokeInst>(U)) {
+              Instruction *Inst = cast<Instruction>(U);
+              BasicBlock *CallerBB = Inst->getParent();
+              if (CallerBB) {
+                dgf_CallerBBs.insert(CallerBB);
+                if (Visited.count(CallerBB) == 0) {
+                  Visited.insert(CallerBB);
+                  WorkList.push_back({CallerBB, depth + 1}); // Hop to caller increments depth
+                }
+              }
+            }
+          }
+        }
+
+        // 5. Local Control Dependency Resolution
         auto it = PDF.find(CurrentBB);
         if (it != PDF.end() && !it->second.empty()) {
-          // Branch A [Found regional controller]
           for (BasicBlock *ControlBB : it->second) {
             dgf_ControlBBs.insert(ControlBB);
             if (Visited.count(ControlBB) == 0) {
               Visited.insert(ControlBB);
               WorkList.push_back({ControlBB, depth}); // Local control keeps the same depth
-            }
-          }
-        } else {
-          // Branch B [Inter-procedural Leap]
-          if (depth < max_depth) {
-            for (auto *U : F->users()) {
-              if (isa<CallInst>(U) || isa<InvokeInst>(U)) {
-                Instruction *Inst = cast<Instruction>(U);
-                BasicBlock *CallerBB = Inst->getParent();
-                if (CallerBB) {
-                  dgf_CallerBBs.insert(CallerBB);
-                  if (Visited.count(CallerBB) == 0) {
-                    Visited.insert(CallerBB);
-                    WorkList.push_back({CallerBB, depth + 1}); // Hop to caller increments depth
-                  }
-                }
-              }
             }
           }
         }
