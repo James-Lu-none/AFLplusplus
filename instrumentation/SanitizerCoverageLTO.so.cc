@@ -2768,7 +2768,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
-    if (dgf_enabled && shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
+    bool is_dgf_block = (dgf_enabled && (dgf_BlockIDs.count(&BB) > 0 || &BB == dgf_TargetBB));
+
+    if (is_dgf_block || (dgf_enabled && shouldInstrumentBlock(F, &BB, DT, PDT, Options))) {
       // prune edge coverage for functions that doesn't contains any BB in our dgf set
       // !! after testing, pruning edge coverage for functions that doesn't contains
       // any BB in our dgf set will cause fuzzer unable to detect anything that is outside
@@ -2791,7 +2793,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       // !! still keep all bb
       BlocksToInstrument.push_back(&BB);
-      if (!func_contains_dgf && !(F.getName() == "main" && &BB == &F.getEntryBlock())) {
+      if (!func_contains_dgf && !(F.getName() == "main" && &BB == &F.getEntryBlock()) && !is_dgf_block) {
         // still record "should prune" basic blocks
         dgf_total_pruned_blocks++;
         dgf_PrunedBBs.push_back(&BB);
@@ -2968,15 +2970,43 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
 
   IRBuilder<> IRB(&*IP);
+  if (F.getSubprogram()) {
+    llvm::DebugLoc EntryDebugLoc;
+    for (auto &I : BB) {
+      if (I.getDebugLoc()) {
+        EntryDebugLoc = I.getDebugLoc();
+        break;
+      }
+    }
+    if (!EntryDebugLoc) {
+      for (auto &I : F.getEntryBlock()) {
+        if (I.getDebugLoc()) {
+          EntryDebugLoc = I.getDebugLoc();
+          break;
+        }
+      }
+    }
+    if (!EntryDebugLoc) {
+      EntryDebugLoc = llvm::DILocation::get(F.getContext(), F.getSubprogram()->getLine(), 0, F.getSubprogram());
+    }
+    IRB.SetCurrentDebugLocation(EntryDebugLoc);
+  }
+
   if (dgf_enabled && &BB == dgf_TargetBB) {
     FunctionCallee TargetHitFn = CurModule->getOrInsertFunction("__afl_dgf_target_hit", Type::getVoidTy(*C));
-    IRB.CreateCall(TargetHitFn);
+    CallInst *CI = IRB.CreateCall(TargetHitFn);
+    if (F.getSubprogram()) {
+      CI->setDebugLoc(IRB.getCurrentDebugLocation());
+    }
   }
   if (dgf_enabled && dgf_BlockIDs.count(&BB) > 0) {
     uint32_t id = dgf_BlockIDs[&BB];
     uint32_t type = (dgf_BlockTypes[&BB] == "Control") ? 0 : 1;
     FunctionCallee BlockHitFn = CurModule->getOrInsertFunction("__afl_dgf_block_hit", Type::getVoidTy(*C), Type::getInt32Ty(*C), Type::getInt32Ty(*C));
-    IRB.CreateCall(BlockHitFn, {ConstantInt::get(Type::getInt32Ty(*C), type), ConstantInt::get(Type::getInt32Ty(*C), id)});
+    CallInst *CI = IRB.CreateCall(BlockHitFn, {ConstantInt::get(Type::getInt32Ty(*C), type), ConstantInt::get(Type::getInt32Ty(*C), id)});
+    if (F.getSubprogram()) {
+      CI->setDebugLoc(IRB.getCurrentDebugLocation());
+    }
   }
   if (Options.TracePC) {
 
