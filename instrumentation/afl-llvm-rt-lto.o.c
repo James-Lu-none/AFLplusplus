@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 // to prevent the function from being removed
 unsigned char __afl_lto_mode = 0;
@@ -10,6 +14,7 @@ static unsigned long long __afl_dgf_start_time = 0;
 
 #define MAX_DGF_BLOCKS 1048576
 static unsigned char __afl_dgf_blocks_hit[MAX_DGF_BLOCKS] = {0};
+static unsigned char *__afl_dgf_shared_hit_map = NULL;
 
 static unsigned long long get_current_time_ms(void) {
   struct timeval tv;
@@ -27,11 +32,32 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
 
   __afl_dgf_start_time = get_current_time_ms();
 
-  // Initialize output file for block hit log
-  FILE *f = fopen("dgf_blocks_hit.txt", "w");
-  if (f) {
-    fprintf(f, "Type,ID,ElapsedMS\n");
-    fclose(f);
+  // Create/open shared memory backing file and map it
+  int fd = open("dgf_shm.bin", O_RDWR | O_CREAT, 0644);
+  if (fd >= 0) {
+    struct stat st;
+    if (fstat(fd, &st) == 0 && st.st_size < MAX_DGF_BLOCKS) {
+      if (ftruncate(fd, MAX_DGF_BLOCKS) != 0) {
+        // Handle error if truncate fails
+      }
+    }
+    __afl_dgf_shared_hit_map = (unsigned char *)mmap(NULL, MAX_DGF_BLOCKS, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    if (__afl_dgf_shared_hit_map == MAP_FAILED) {
+      __afl_dgf_shared_hit_map = NULL;
+    }
+  }
+
+  // Initialize output file for block hit log if not already created
+  FILE *check = fopen("dgf_blocks_hit.txt", "r");
+  if (!check) {
+    FILE *f = fopen("dgf_blocks_hit.txt", "w");
+    if (f) {
+      fprintf(f, "Type,ID,ElapsedMS\n");
+      fclose(f);
+    }
+  } else {
+    fclose(check);
   }
 
   // Volatile references to prevent hit handlers from being optimized out by LTO
@@ -90,18 +116,30 @@ __attribute__((used)) void __afl_dgf_target_hit(void) {
 __attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int id) {
   if (id >= MAX_DGF_BLOCKS) return;
   if (__afl_dgf_blocks_hit[id]) return;
-  __afl_dgf_blocks_hit[id] = 1;
 
-  unsigned long long hit_time_ms = get_current_time_ms();
-  unsigned long long elapsed_ms = hit_time_ms - __afl_dgf_start_time;
+  if (__afl_dgf_shared_hit_map) {
+    if (__afl_dgf_shared_hit_map[id]) {
+      __afl_dgf_blocks_hit[id] = 1;
+      return;
+    }
 
-  FILE *f = fopen("dgf_blocks_hit.txt", "a");
-  if (f) {
-    fprintf(f, "%u,%u,%llu\n", type, id, elapsed_ms);
-    fclose(f);
-  }
-  if (getenv("AFL_DEBUG")) {
-    fprintf(stderr, "[DGF] Block hit: Type=%u, ID=%u, Elapsed=%llu ms\n", type, id, elapsed_ms);
+    // Atomically check and set hit map using compare-and-swap
+    if (__sync_bool_compare_and_swap(&__afl_dgf_shared_hit_map[id], 0, 1)) {
+      __afl_dgf_blocks_hit[id] = 1;
+
+      unsigned long long hit_time_ms = get_current_time_ms();
+      unsigned long long elapsed_ms = hit_time_ms - __afl_dgf_start_time;
+
+      FILE *f = fopen("dgf_blocks_hit.txt", "a");
+      if (f) {
+        fprintf(f, "%u,%u,%llu\n", type, id, elapsed_ms);
+        fclose(f);
+      }
+      if (getenv("AFL_DEBUG")) {
+        fprintf(stderr, "[DGF] Block hit: Type=%u, ID=%u, Elapsed=%llu ms\n", type, id, elapsed_ms);
+      }
+    } else {
+      __afl_dgf_blocks_hit[id] = 1;
+    }
   }
 }
-
