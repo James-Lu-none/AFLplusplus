@@ -1742,8 +1742,14 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       fprintf(f_info, "1. Number of Control BBs (Heavy Instrumented): %zu\n", dgf_ControlBBs.size());
       fprintf(f_info, "   Number of Caller BBs (Navigation Instrumented): %zu\n\n", dgf_CallerBBs.size());
       
-      // 2. Which ControlBBs and CallerBBs
-      fprintf(f_info, "2. Details of Control BBs and Caller BBs:\n");
+      // 2. How many basic blocks were edge instrumented
+      fprintf(f_info, "2. Total Basic Blocks Edge-Instrumented: %zu\n\n", dgf_EdgeInstrumentedBBs.size());
+      
+      // 3. How many basic blocks were pruned/removed due to DGF control flow dependencies
+      fprintf(f_info, "3. Total Basic Blocks Pruned/Removed by DGF: %u\n\n", dgf_total_pruned_blocks);
+      
+      // 3. Which ControlBBs and CallerBBs
+      fprintf(f_info, "4. Details of Control BBs and Caller BBs:\n");
       fprintf(f_info, "   --- Control BBs ---\n");
       for (auto *BB : dgf_ControlBBs) {
         std::string loc = "";
@@ -1774,11 +1780,8 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       }
       fprintf(f_info, "\n");
       
-      // 3. How many basic blocks were edge instrumented
-      fprintf(f_info, "3. Total Basic Blocks Edge-Instrumented: %zu\n\n", dgf_EdgeInstrumentedBBs.size());
-      
       // 4. Which basic blocks were edge instrumented
-      fprintf(f_info, "4. List of Edge-Instrumented Basic Blocks:\n");
+      fprintf(f_info, "5. List of Edge-Instrumented Basic Blocks:\n");
       for (auto *BB : dgf_EdgeInstrumentedBBs) {
         std::string loc = "";
         for (const Instruction &I : *BB) {
@@ -1793,10 +1796,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
                 loc.empty() ? "<no debug info>" : loc.c_str());
       }
       fprintf(f_info, "\n");
-      
-      // 5. How many basic blocks were pruned/removed due to DGF control flow dependencies
-      fprintf(f_info, "5. Total Basic Blocks Pruned/Removed by DGF: %u\n\n", dgf_total_pruned_blocks);
-      
+
       // 6. List of Blocks Pruned/Removed by DGF
       fprintf(f_info, "6. List of Blocks Pruned/Removed by DGF:\n");
       for (auto *BB : dgf_PrunedBBs) {
