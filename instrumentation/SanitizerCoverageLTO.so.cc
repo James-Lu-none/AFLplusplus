@@ -638,8 +638,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         fclose(f_map);
       }
     } else {
-      fprintf(stderr, "DGF: TargetBB not found. Disabling DGF.\n");
-      dgf_enabled = false;
+      FATAL("DGF: TargetBB not found.");
     }
   }
   /*
