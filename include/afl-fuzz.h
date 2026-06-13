@@ -308,6 +308,9 @@ struct queue_entry {
   u32 bitsmap_size;
 #endif
 
+  u64 prox_score;                       /* Proximity score                  */
+  u8  handled_in_cycle;                 /* Handled in this cycle?           */
+
   double perf_score,                    /* performance score                */
       weight;
 
@@ -697,6 +700,14 @@ typedef struct afl_state {
   u8 *virgin_bits,                      /* Regions yet untouched by fuzzing */
       *virgin_tmout,                    /* Bits we haven't seen in tmouts   */
       *virgin_crash;                    /* Bits we haven't seen in crashes  */
+
+  u64 max_prox_score;
+  u64 min_prox_score;
+  u64 total_prox_score;
+  u64 avg_prox_score;
+  u8  no_dfg_schedule;
+  u32 t_x;
+  struct queue_entry *first_unhandled;
 
   double *alias_probability;            /* alias weighted probabilities     */
   u32    *alias_table;                /* alias weighted random lookup table */
@@ -1338,6 +1349,7 @@ void add_to_queue(afl_state_t *, u8 *, u32, u8);
 void destroy_queue(afl_state_t *);
 void update_bitmap_score(afl_state_t *, struct queue_entry *, bool);
 void cull_queue(afl_state_t *);
+void sort_queue(afl_state_t *);
 u32  calculate_score(afl_state_t *, struct queue_entry *);
 void recalculate_all_scores(afl_state_t *);
 void update_bitmap_rescore(afl_state_t *, struct queue_entry *, u32);

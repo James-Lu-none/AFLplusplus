@@ -15,6 +15,8 @@
 #include <fstream>
 #include <set>
 #include <iostream>
+#include <map>
+#include <sstream>
 
 #include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -131,6 +133,63 @@ void initializeModuleSanitizerCoverageLTOLegacyPassPass(PassRegistry &PB);
 }
 
 namespace {
+
+static bool selective_coverage = false;
+static bool dfg_scoring = false;
+static bool no_filename_match = false;
+static std::set<std::string> instr_targets;
+static std::map<std::string, std::pair<unsigned int, unsigned int>> dfg_node_map;
+
+static void initCoverageTarget(char* select_file) {
+  std::string line;
+  std::ifstream stream(select_file);
+
+  while (std::getline(stream, line)) {
+    if (!line.empty()) {
+      instr_targets.insert(line);
+    }
+  }
+}
+
+static void initDFGNodeMap(char* dfg_file) {
+  unsigned int idx = 0;
+  std::string line;
+  std::ifstream stream(dfg_file);
+
+  while (std::getline(stream, line)) {
+    std::size_t space_idx = line.find(" ");
+    if (space_idx == std::string::npos) continue;
+    std::string score_str = line.substr(0, space_idx);
+    std::string targ_line = line.substr(space_idx + 1, std::string::npos);
+    int score = stoi(score_str);
+    dfg_node_map[targ_line] = std::make_pair(idx++, (unsigned int) score);
+    if (idx >= DFG_MAP_SIZE) {
+      std::cout << "Input DFG is too large (check DFG_MAP_SIZE)" << std::endl;
+      exit(1);
+    }
+  }
+}
+
+static void initialize(void) {
+  static bool initialized = false;
+  if (initialized) return;
+  initialized = true;
+
+  char* select_file = getenv("DAFL_SELECTIVE_COV");
+  char* dfg_file = getenv("DAFL_DFG_SCORE");
+
+  if (select_file) {
+    selective_coverage = true;
+    initCoverageTarget(select_file);
+  }
+
+  if (dfg_file) {
+    dfg_scoring = true;
+    initDFGNodeMap(dfg_file);
+  }
+
+  if (getenv("DAFL_NO_FILENAME_MATCH")) no_filename_match = true;
+}
 
 SanitizerCoverageOptions getOptions(int LegacyCoverageLevel) {
 
@@ -275,6 +334,7 @@ class ModuleSanitizerCoverageLTO
   Module                          *Mo = NULL;
   GlobalVariable                  *AFLContext = NULL;
   GlobalVariable                  *AFLMapPtr = NULL;
+  GlobalVariable                  *AFLMapDFGPtr = NULL;
   GlobalVariable                  *AFLCovMapSize = NULL;
   GlobalVariable                  *AFLIJONState = NULL;
   const char                      *ijon_enabled = nullptr;
@@ -411,6 +471,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     Module &M, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
   if (Options.CoverageType == SanitizerCoverageOptions::SCK_None) return false;
+  initialize();
   /*
     if (Allowlist &&
         !Allowlist->inSection("coverage", "src", MNAME))
@@ -729,6 +790,9 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   AFLCovMapSize =
       new GlobalVariable(M, Int32Tyi, false, GlobalValue::ExternalLinkage, 0,
                          "__afl_cov_map_size");
+
+  AFLMapDFGPtr = new GlobalVariable(
+      M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_dfg_ptr");
 
   AFLContext = new GlobalVariable(
       M, Int32Ty, false, GlobalValue::ExternalLinkage, 0, "__afl_prev_ctx", 0,
@@ -1630,6 +1694,39 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
     Function &F, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
   if (F.empty()) return;
+
+  bool is_inst_targ = false;
+  std::string file_name = "";
+  if (auto *SP = F.getSubprogram()) {
+    file_name = SP->getFilename().str();
+    std::size_t tokloc = file_name.find_last_of('/');
+    if (tokloc != std::string::npos) {
+      file_name = file_name.substr(tokloc + 1, std::string::npos);
+    }
+  }
+
+  const std::string func_name = F.getName().str();
+  std::set<std::string>::iterator it;
+
+  /* Check if this function is our instrumentation target. */
+  if (selective_coverage) {
+    for (it = instr_targets.begin(); it != instr_targets.end(); ++it) {
+      std::size_t colon = (*it).find(":");
+      std::string target_file = (*it).substr(0, colon);
+      std::string target_func = (*it).substr(colon + 1, std::string::npos);
+
+      if (no_filename_match || file_name.compare(target_file) == 0) {
+        if (func_name.compare(target_func) == 0) {
+          is_inst_targ = true;
+          break;
+        }
+      }
+    }
+  } else is_inst_targ = true; // If disabled, instrument all the blocks.
+
+  if (!is_inst_targ) {
+    return;
+  }
   if (F.getName().contains(".module_ctor"))
     return;  // Should not instrument sanitizer init functions.
 #if LLVM_VERSION_MAJOR >= 18
@@ -2611,6 +2708,35 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
                                                        size_t      Idx,
                                                        bool        IsLeafFunc) {
 
+  bool is_dfg_node = false;
+  unsigned int node_idx = 0;
+  unsigned int node_score = 0;
+
+  if (dfg_scoring) {
+    for (auto &inst : BB) {
+      DebugLoc dbg = inst.getDebugLoc();
+      DILocation* DILoc = dbg.get();
+      if (DILoc && DILoc->getLine()) {
+        int line_no = DILoc->getLine();
+        std::string inst_file = DILoc->getFilename().str();
+        std::size_t tokloc = inst_file.find_last_of('/');
+        if (tokloc != std::string::npos) {
+          inst_file = inst_file.substr(tokloc + 1, std::string::npos);
+        }
+        std::ostringstream stream;
+        stream << inst_file << ":" << line_no;
+        std::string targ_str = stream.str();
+        if (dfg_node_map.count(targ_str) > 0) {
+          is_dfg_node = true;
+          auto node_info = dfg_node_map[targ_str];
+          node_idx = node_info.first;
+          node_score = node_info.second;
+          break;
+        }
+      }
+    }
+  }
+
   BasicBlock::iterator IP = BB.getFirstInsertionPt();
   bool                 IsEntryBB = &BB == &F.getEntryBlock();
 
@@ -2723,6 +2849,26 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
     // done :)
 
     ++inst;
+    if (is_dfg_node) {
+      /* Update DFG coverage map. */
+      LoadInst *DFGMap = IRB.CreateLoad(PtrTy, AFLMapDFGPtr);
+      DFGMap->setMetadata(F.getParent()->getMDKindID("nosanitize"),
+#if LLVM_VERSION_MAJOR >= 20
+                          MDNode::get(*C, {}));
+#else
+                          MDNode::get(*C, None));
+#endif
+      ConstantInt * Idx = ConstantInt::get(Int32Tyi, node_idx);
+      ConstantInt * Score = ConstantInt::get(Int32Tyi, node_score);
+      Value *DFGMapPtrIdx = IRB.CreateGEP(Int32Tyi, DFGMap, Idx);
+      IRB.CreateStore(Score, DFGMapPtrIdx)
+          ->setMetadata(F.getParent()->getMDKindID("nosanitize"),
+#if LLVM_VERSION_MAJOR >= 20
+                        MDNode::get(*C, {}));
+#else
+                        MDNode::get(*C, None));
+#endif
+    }
     // AFL++ END
 
     /*

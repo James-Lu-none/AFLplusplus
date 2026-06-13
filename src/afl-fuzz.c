@@ -683,6 +683,10 @@ afl_state_t *afl_init(void) {
   if (debug) { afl->fsrv.debug = true; }
 
   afl->runs_in_current_cycle = (u32)-1;
+  afl->min_prox_score = 0xffffffffffffffffULL;
+  afl->max_prox_score = 0;
+  afl->total_prox_score = 0;
+  afl->avg_prox_score = 0;
   #ifndef HAVE_ZLIB
   afl->fr_fd = -1;
   #endif
@@ -797,6 +801,22 @@ void afl_parse_commandline(afl_state_t *afl, int argc, char **argv) {
   u32 show_help = 0;
   u8  mem_limit_given = 0;
 
+  if (getenv("AFL_NO_DFG_SCHED")) {
+    afl->no_dfg_schedule = 1;
+  }
+  char *dfg_anneal_env = getenv("AFL_DFG_ANNEAL");
+  if (dfg_anneal_env) {
+    u8 suffix = 'm';
+    if (sscanf(dfg_anneal_env, "%u%c", &afl->t_x, &suffix) >= 1) {
+      switch (suffix) {
+        case 's': afl->t_x /= 60; break;
+        case 'm': break;
+        case 'h': afl->t_x *= 60; break;
+        case 'd': afl->t_x *= 60 * 24; break;
+      }
+    }
+  }
+
   #if defined USE_COLOR && defined ALWAYS_COLORED
   if (getenv("AFL_NO_COLOR") || getenv("AFL_NO_COLOUR")) {
 
@@ -813,10 +833,10 @@ void afl_parse_commandline(afl_state_t *afl, int argc, char **argv) {
   afl->argv_cpy = argv_dup;
   afl->argc_cpy = argc;
 
-  // still available: HjJkqrv
+  // still available: Hkqrv
   while ((opt = getopt(
               argc, argv,
-              "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:K:l:L:m:M:nNo:Op:P:QRs:S:t:T:"
+              "+a:Ab:B:c:CdDe:E:f:F:g:G:hi:I:jJ:K:l:L:m:M:nNo:Op:P:QRs:S:t:T:"
               "uUV:w:WXx:YzZ")) > 0) {
 
     switch (opt) {
@@ -1696,6 +1716,27 @@ void afl_parse_commandline(afl_state_t *afl, int argc, char **argv) {
             "as normal havoc mode.");
 
       } break;
+
+      case 'j':
+        afl->no_dfg_schedule = 1;
+        break;
+
+      case 'J': {
+        u8 suffix = 'm';
+        if (sscanf(optarg, "%u%c", &afl->t_x, &suffix) < 1 ||
+            optarg[0] == '-') {
+          FATAL("Bad syntax used for -J");
+        }
+
+        switch (suffix) {
+          case 's': afl->t_x /= 60; break;
+          case 'm': break;
+          case 'h': afl->t_x *= 60; break;
+          case 'd': afl->t_x *= 60 * 24; break;
+          default:  FATAL("Unsupported suffix or bad syntax for -J");
+        }
+        break;
+      }
 
       case 'h':
         show_help++;
@@ -2821,6 +2862,7 @@ void afl_alloc_shared_memory(afl_state_t *afl) {
 
   afl->argv = use_argv;
 
+  afl->shm.dfg_mode = 1;
   afl->fsrv.trace_bits =
       afl_shm_init(&afl->shm, afl->fsrv.map_size, afl->non_instrumented_mode,
                    afl->perm, afl->chown_needed ? afl->fsrv.gid : -1);
@@ -3416,6 +3458,7 @@ void afl_load_seeds(afl_state_t *afl) {
 
   }
 
+  sort_queue(afl);
   cull_queue(afl);
 
   // ensure we have at least one seed that is not disabled.

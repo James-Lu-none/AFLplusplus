@@ -738,6 +738,88 @@ static u8 check_if_text(afl_state_t *afl, struct queue_entry *q) {
 
 }
 
+static u64 compute_proximity_score(afl_state_t *afl) {
+  if (!afl->shm.dfg_map) return 0;
+  u64 prox_score = 0;
+  for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
+    prox_score += afl->shm.dfg_map[i];
+  }
+  return prox_score;
+}
+
+static void sorted_insert_to_queue(afl_state_t *afl, struct queue_entry *q) {
+  u32 insert_pos = 0;
+
+  // Find the first element that has a smaller proximity score than q
+  while (insert_pos < afl->queued_items - 1 &&
+         afl->queue_buf[insert_pos]->prox_score >= q->prox_score) {
+    insert_pos++;
+  }
+
+  // Shift elements to the right to make room for q
+  u32 old_pos = afl->queued_items - 1;
+  if (insert_pos < old_pos) {
+    memmove(&afl->queue_buf[insert_pos + 1], &afl->queue_buf[insert_pos],
+            (old_pos - insert_pos) * sizeof(struct queue_entry *));
+  }
+
+  afl->queue_buf[insert_pos] = q;
+
+  // Re-assign ids (indexes) for all elements that changed positions
+  for (u32 i = insert_pos; i < afl->queued_items; i++) {
+    afl->queue_buf[i]->id = i;
+  }
+
+  // Rebuild splice_buf_ids
+  afl->splice_buf_count = 0;
+  for (u32 i = 0; i < afl->queued_items; i++) {
+    if (afl->queue_buf[i]->len > 3) {
+      if (unlikely(afl->splice_buf_count >= afl->splice_buf_alloc)) {
+        u32 new_alloc = afl->splice_buf_alloc ? afl->splice_buf_alloc * 2 : 64;
+        afl->splice_buf_ids = realloc(afl->splice_buf_ids, new_alloc * sizeof(u32));
+        afl->splice_buf_alloc = new_alloc;
+      }
+      afl->splice_buf_ids[afl->splice_buf_count++] = i;
+    }
+  }
+}
+
+static int compare_dfg_prox_score(const void *a, const void *b) {
+  struct queue_entry *qa = *(struct queue_entry **)a;
+  struct queue_entry *qb = *(struct queue_entry **)b;
+
+  if (qa->prox_score > qb->prox_score) return -1;
+  if (qa->prox_score < qb->prox_score) return 1;
+  return 0;
+}
+
+void sort_queue(afl_state_t *afl) {
+  if (afl->queued_items < 2) return;
+  qsort(afl->queue_buf, afl->queued_items, sizeof(struct queue_entry *), compare_dfg_prox_score);
+
+  // Update first_unhandled pointer
+  afl->first_unhandled = NULL;
+  for (u32 i = 0; i < afl->queued_items; i++) {
+    afl->queue_buf[i]->id = i;
+    if (!afl->first_unhandled && !afl->queue_buf[i]->handled_in_cycle) {
+      afl->first_unhandled = afl->queue_buf[i];
+    }
+  }
+
+  // Rebuild splice_buf_ids
+  afl->splice_buf_count = 0;
+  for (u32 i = 0; i < afl->queued_items; i++) {
+    if (afl->queue_buf[i]->len > 3) {
+      if (unlikely(afl->splice_buf_count >= afl->splice_buf_alloc)) {
+        u32 new_alloc = afl->splice_buf_alloc ? afl->splice_buf_alloc * 2 : 64;
+        afl->splice_buf_ids = realloc(afl->splice_buf_ids, new_alloc * sizeof(u32));
+        afl->splice_buf_alloc = new_alloc;
+      }
+      afl->splice_buf_ids[afl->splice_buf_count++] = i;
+    }
+  }
+}
+
 /* Append new test case to the queue. */
 
 void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
@@ -759,6 +841,8 @@ void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
 #endif
 
   if (q->depth > afl->max_depth) { afl->max_depth = q->depth; }
+
+  q->prox_score = compute_proximity_score(afl);
 
   if (afl->queue_top) {
 
@@ -784,21 +868,7 @@ void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
   queue_buf[afl->queued_items - 1] = q;
   q->id = afl->queued_items - 1;
 
-  if (likely(q->len > 3)) {
-
-    if (unlikely(afl->splice_buf_count >= afl->splice_buf_alloc)) {
-
-      u32 new_alloc = afl->splice_buf_alloc ? afl->splice_buf_alloc * 2 : 64;
-      afl->splice_buf_ids =
-          realloc(afl->splice_buf_ids, new_alloc * sizeof(u32));
-      if (unlikely(!afl->splice_buf_ids)) { PFATAL("alloc splice_buf"); }
-      afl->splice_buf_alloc = new_alloc;
-
-    }
-
-    afl->splice_buf_ids[afl->splice_buf_count++] = q->id;
-
-  }
+  sorted_insert_to_queue(afl, q);
 
   u64 cur_time = get_cur_time();
 
@@ -1304,6 +1374,36 @@ void update_bitmap_rescore(afl_state_t *afl, struct queue_entry *q, u32 index) {
 
 }
 
+static double calculate_factor(afl_state_t *afl, struct queue_entry *q) {
+  double factor;
+  double normalized_prox_score, progress_to_tx, T, p;
+  u64 cur_ms, t;
+  u64 prox_score = q->prox_score;
+
+  if (afl->t_x) { // AFLGo's seed scheduling strategy.
+    if (afl->min_prox_score == afl->max_prox_score) {
+      normalized_prox_score = 0.5;
+    } else {
+      normalized_prox_score = (double)(prox_score - afl->min_prox_score) /
+                               (double)(afl->max_prox_score - afl->min_prox_score);
+    }
+    cur_ms = get_cur_time();
+    t = (cur_ms - afl->start_time) / 1000;
+    progress_to_tx = ((double)t) / ((double)afl->t_x * 60.0);
+    T = 1.0 / pow(20.0, progress_to_tx);
+    p = normalized_prox_score * (1.0 - T) + 0.5 * T;
+    factor = pow(2.0, 5.0 * 2.0 * (p - 0.5)); // Note log2(MAX_FACTOR) = 5.0
+  }
+  else if (afl->no_dfg_schedule || !afl->avg_prox_score) {
+    factor = 1.0; // No factor.
+  }
+  else {
+    factor = ((double)prox_score) / ((double)afl->avg_prox_score); // Default.
+  }
+
+  return factor;
+}
+
 /* Calculate case desirability score to adjust the length of havoc fuzzing.
    A helper function for fuzz_one(). Maybe some of these constants should
    go into config.h. */
@@ -1585,6 +1685,8 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
     perf_score = 1;
 
   }
+
+  perf_score = (u32)(calculate_factor(afl, q) * (double)perf_score);
 
   /* Make sure that we don't go over limit. */
 

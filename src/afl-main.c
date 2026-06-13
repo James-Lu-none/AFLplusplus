@@ -37,12 +37,27 @@ static void afl_import_first(afl_state_t *afl) {
 
 static void afl_advance_queue_cycle(afl_state_t *afl) {
 
+  bool all_handled = false;
+  if (!afl->no_dfg_schedule) {
+    u32 idx = 0;
+    while (idx < afl->queued_items && afl->queue_buf[idx]->handled_in_cycle) {
+      idx++;
+    }
+    if (idx >= afl->queued_items) {
+      all_handled = true;
+    }
+  }
+
   if (likely(!(!afl->old_seed_selection &&
-               afl->runs_in_current_cycle > afl->queued_items) &&
+               (afl->runs_in_current_cycle > afl->queued_items || all_handled)) &&
              !(afl->old_seed_selection && !afl->queue_cur))) {
 
     return;
 
+  }
+
+  for (u32 i = 0; i < afl->queued_items; i++) {
+    afl->queue_buf[i]->handled_in_cycle = 0;
   }
 
   if (unlikely(afl->last_sync_cycle < afl->queue_cycle && afl->sync_id)) {
@@ -247,56 +262,97 @@ static void afl_fuzz_queue(afl_state_t *afl) {
 
     if (likely(!afl->old_seed_selection)) {
 
-      if (likely(afl->pending_favored && afl->smallest_favored >= 0)) {
+      if (!afl->no_dfg_schedule) {
 
-        afl->current_entry = afl->smallest_favored;
+        if (afl->first_unhandled) {
 
-        /*
+          afl->queue_cur = afl->first_unhandled;
+          afl->current_entry = afl->queue_cur->id;
+          afl->first_unhandled = NULL;
 
-                  } else {
+        } else {
 
-                    for (s32 iter = afl->queued_items - 1; iter >= 0; --iter)
-           {
+          u32 idx = 0;
+          while (idx < afl->queued_items && afl->queue_buf[idx]->handled_in_cycle) {
+            idx++;
+          }
 
-                      if (unlikely(afl->queue_buf[iter]->favored &&
-                                   !afl->queue_buf[iter]->was_fuzzed)) {
+          if (idx < afl->queued_items) {
 
-                        afl->current_entry = iter;
-                        break;
+            afl->current_entry = idx;
+            afl->queue_cur = afl->queue_buf[idx];
 
-                      }
+          } else {
 
-                    }
+            afl->queue_cur = NULL;
 
-        */
-
-        afl->queue_cur = afl->queue_buf[afl->current_entry];
-
-      } else {
-
-        if (unlikely(afl->prev_queued_items < afl->queued_items ||
-                     afl->reinit_table)) {
-
-          // we have new queue entries since the last run, recreate alias
-          // table
-          afl->prev_queued_items = afl->queued_items;
-          create_alias_table(afl);
+          }
 
         }
 
-        do {
+      } else {
 
-          afl->current_entry = select_next_queue_entry(afl);
+        if (likely(afl->pending_favored && afl->smallest_favored >= 0)) {
 
-        } while (unlikely(afl->current_entry >= afl->queued_items));
+          afl->current_entry = afl->smallest_favored;
 
-        afl->queue_cur = afl->queue_buf[afl->current_entry];
+          /*
+
+                    } else {
+
+                      for (s32 iter = afl->queued_items - 1; iter >= 0; --iter)
+             {
+
+                        if (unlikely(afl->queue_buf[iter]->favored &&
+                                     !afl->queue_buf[iter]->was_fuzzed)) {
+
+                          afl->current_entry = iter;
+                          break;
+
+                        }
+
+                      }
+
+          */
+
+          afl->queue_cur = afl->queue_buf[afl->current_entry];
+
+        } else {
+
+          if (unlikely(afl->prev_queued_items < afl->queued_items ||
+                       afl->reinit_table)) {
+
+            // we have new queue entries since the last run, recreate alias
+            // table
+            afl->prev_queued_items = afl->queued_items;
+            create_alias_table(afl);
+
+          }
+
+          do {
+
+            afl->current_entry = select_next_queue_entry(afl);
+
+          } while (unlikely(afl->current_entry >= afl->queued_items));
+
+          afl->queue_cur = afl->queue_buf[afl->current_entry];
+
+        }
 
       }
 
     }
 
-    afl->skipped_fuzz = fuzz_one(afl);
+    if (afl->queue_cur) {
+
+      afl->skipped_fuzz = fuzz_one(afl);
+      afl->queue_cur->handled_in_cycle = 1;
+
+    } else {
+
+      afl->skipped_fuzz = 1;
+
+    }
 #ifdef INTROSPECTION
     ++afl->queue_cur->stats_selected;
 

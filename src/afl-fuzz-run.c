@@ -44,6 +44,15 @@
 u64 time_spent_working = 0;
 #endif
 
+static u64 compute_proximity_score(afl_state_t *afl) {
+  if (!afl->shm.dfg_map) return 0;
+  u64 prox_score = 0;
+  for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
+    prox_score += afl->shm.dfg_map[i];
+  }
+  return prox_score;
+}
+
 /* Execute target application, monitoring for timeouts. Return status
    information. The called program will update afl->fsrv->trace_bits. */
 
@@ -692,11 +701,18 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
   if (unlikely(!q->exec_us)) { q->exec_us = 1; }
 
   q->bitmap_size = count_bytes(afl, afl->fsrv.trace_bits);
+  q->prox_score = compute_proximity_score(afl);
   q->handicap = handicap;
   q->cal_failed = 0;
 
   afl->total_bitmap_size += q->bitmap_size;
   ++afl->total_bitmap_entries;
+
+  /* Update proximity score information */
+  afl->total_prox_score += q->prox_score;
+  afl->avg_prox_score = afl->total_prox_score / (afl->queued_items ? afl->queued_items : 1);
+  if (q->prox_score < afl->min_prox_score) { afl->min_prox_score = q->prox_score; }
+  if (q->prox_score > afl->max_prox_score) { afl->max_prox_score = q->prox_score; }
 
   update_bitmap_score(afl, q, true);
 

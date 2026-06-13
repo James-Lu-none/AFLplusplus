@@ -62,7 +62,70 @@ typedef long double max_align_t;
 #include "afl-llvm-common.h"
 #include "llvm-alternative-coverage.h"
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <set>
+#include <map>
+
 using namespace llvm;
+
+static bool selective_coverage = false;
+static bool dfg_scoring = false;
+static bool no_filename_match = false;
+static std::set<std::string> instr_targets;
+static std::map<std::string, std::pair<unsigned int, unsigned int>> dfg_node_map;
+
+static void initCoverageTarget(char* select_file) {
+  std::string line;
+  std::ifstream stream(select_file);
+
+  while (std::getline(stream, line)) {
+    if (!line.empty()) {
+      instr_targets.insert(line);
+    }
+  }
+}
+
+static void initDFGNodeMap(char* dfg_file) {
+  unsigned int idx = 0;
+  std::string line;
+  std::ifstream stream(dfg_file);
+
+  while (std::getline(stream, line)) {
+    std::size_t space_idx = line.find(" ");
+    if (space_idx == std::string::npos) continue;
+    std::string score_str = line.substr(0, space_idx);
+    std::string targ_line = line.substr(space_idx + 1, std::string::npos);
+    int score = stoi(score_str);
+    dfg_node_map[targ_line] = std::make_pair(idx++, (unsigned int) score);
+    if (idx >= DFG_MAP_SIZE) {
+      std::cout << "Input DFG is too large (check DFG_MAP_SIZE)" << std::endl;
+      exit(1);
+    }
+  }
+}
+
+static void initialize(void) {
+  static bool initialized = false;
+  if (initialized) return;
+  initialized = true;
+
+  char* select_file = getenv("DAFL_SELECTIVE_COV");
+  char* dfg_file = getenv("DAFL_DFG_SCORE");
+
+  if (select_file) {
+    selective_coverage = true;
+    initCoverageTarget(select_file);
+  }
+
+  if (dfg_file) {
+    dfg_scoring = true;
+    initDFGNodeMap(dfg_file);
+  }
+
+  if (getenv("DAFL_NO_FILENAME_MATCH")) no_filename_match = true;
+}
 
 namespace {
 
@@ -124,6 +187,8 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
 
   IntegerType *Int8Ty = IntegerType::getInt8Ty(C);
   IntegerType *Int32Ty = IntegerType::getInt32Ty(C);
+
+  initialize();
 #ifdef AFL_HAVE_VECTOR_INTRINSICS
   IntegerType *IntLocTy =
       IntegerType::getIntNTy(C, sizeof(PREV_LOC_T) * CHAR_BIT);
@@ -317,6 +382,9 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
   GlobalVariable *AFLMapPtr =
       new GlobalVariable(M, PointerType::get(C, 0), false,
                          GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
+  GlobalVariable *AFLMapDFGPtr =
+      new GlobalVariable(M, PointerType::get(C, 0), false,
+                         GlobalValue::ExternalLinkage, 0, "__afl_area_dfg_ptr");
   GlobalVariable *AFLPrevLoc;
   GlobalVariable *AFLPrevCaller;
   GlobalVariable *AFLContext = NULL;
@@ -421,6 +489,16 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
   /* Instrument all the things! */
 
   int inst_blocks = 0;
+  int skip_blocks = 0;
+  int inst_dfg_nodes = 0;
+  std::string file_name = M.getSourceFileName();
+  std::set<std::string> covered_targets;
+
+  std::size_t tokloc = file_name.find_last_of('/');
+  if (tokloc != std::string::npos) {
+    file_name = file_name.substr(tokloc + 1, std::string::npos);
+  }
+
   scanForDangerousFunctions(&M);
 
   for (auto &F : M) {
@@ -434,8 +512,60 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
 
     if (F.size() < function_minimum_size) { continue; }
 
+    bool is_inst_targ = false;
+    const std::string func_name = F.getName().str();
+    std::set<std::string>::iterator it;
+
+    /* Check if this function is our instrumentation target. */
+    if (selective_coverage) {
+      for (it = instr_targets.begin(); it != instr_targets.end(); ++it) {
+        std::size_t colon = (*it).find(":");
+        if (colon == std::string::npos) continue;
+        std::string target_file = (*it).substr(0, colon);
+        std::string target_func = (*it).substr(colon + 1, std::string::npos);
+
+        if (no_filename_match || file_name.compare(target_file) == 0) {
+          if (func_name.compare(target_func) == 0) {
+            is_inst_targ = true;
+            covered_targets.insert(*it);
+            break;
+          }
+        }
+      }
+    } else is_inst_targ = true; // If disabled, instrument all the blocks.
+
+    if (!is_inst_targ) {
+      skip_blocks += F.size();
+      continue;
+    }
+
     std::list<Value *> todo;
     for (auto &BB : F) {
+
+      bool is_dfg_node = false;
+      unsigned int node_idx = 0;
+      unsigned int node_score = 0;
+
+      if (dfg_scoring) {
+        for (auto &inst : BB) {
+          DebugLoc dbg = inst.getDebugLoc();
+          DILocation* DILoc = dbg.get();
+          if (DILoc && DILoc->getLine()) {
+            int line_no = DILoc->getLine();
+            std::ostringstream stream;
+            stream << file_name << ":" << line_no;
+            std::string targ_str = stream.str();
+            if (dfg_node_map.count(targ_str) > 0) {
+              is_dfg_node = true;
+              auto node_info = dfg_node_map[targ_str];
+              node_idx = node_info.first;
+              node_score = node_info.second;
+              inst_dfg_nodes++;
+              break;
+            }
+          }
+        }
+      }
 
       BasicBlock::iterator IP = BB.getFirstInsertionPt();
       IRBuilder<>          IRB(&(*IP));
@@ -783,6 +913,27 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
 
       }
 
+      if (is_dfg_node) {
+        /* Update DFG coverage map. */
+        LoadInst *DFGMap = IRB.CreateLoad(PointerType::get(C, 0), AFLMapDFGPtr);
+        DFGMap->setMetadata(M.getMDKindID("nosanitize"),
+#if LLVM_MAJOR >= 20
+                            MDNode::get(C, {}));
+#else
+                            MDNode::get(C, None));
+#endif
+        ConstantInt * Idx = ConstantInt::get(Int32Ty, node_idx);
+        ConstantInt * Score = ConstantInt::get(Int32Ty, node_score);
+        Value *DFGMapPtrIdx = IRB.CreateGEP(Int32Ty, DFGMap, Idx);
+        IRB.CreateStore(Score, DFGMapPtrIdx)
+            ->setMetadata(M.getMDKindID("nosanitize"),
+#if LLVM_MAJOR >= 20
+                          MDNode::get(C, {}));
+#else
+                          MDNode::get(C, None));
+#endif
+      }
+
       // in CTX mode we have to restore the original context for the caller -
       // she might be calling other functions which need the correct CTX.
       // Currently this is only needed for the Ubuntu clang-6.0 bug
@@ -890,6 +1041,11 @@ PreservedAnalyses AFLCoverage::run(Module &M, ModuleAnalysisManager &MAM) {
           modeline, inst_ratio);
 
     }
+
+    for (auto it = covered_targets.begin(); it != covered_targets.end(); ++it)
+      std::cout << "Covered " << (*it) << std::endl;
+    OKF("Selected blocks: %d, skipped blocks: %d, instrumented DFG nodes: %d",
+        inst_blocks, skip_blocks, inst_dfg_nodes);
 
   }
 

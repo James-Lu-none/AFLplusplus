@@ -181,6 +181,8 @@ static u8 *__afl_area_ptr_dummy = __afl_area_initial;
 static u8 *__afl_area_ptr_backup = __afl_area_initial;
 
 u8        *__afl_area_ptr = __afl_area_initial;
+u32        __afl_area_initial_dfg[DFG_MAP_SIZE];
+u32       *__afl_area_dfg_ptr = __afl_area_initial_dfg;
 u8        *__afl_dictionary;
 u32       *__afl_child_sync = NULL;
 u8        *__afl_fuzz_ptr;
@@ -805,6 +807,7 @@ static void __afl_map_shm(void) {
   }
 
   char *id_str = getenv(SHM_ENV_VAR);
+  char *id_str_dfg = getenv(SHM_ENV_VAR_DFG);
 
   if (__afl_final_loc) {
 
@@ -1028,6 +1031,16 @@ static void __afl_map_shm(void) {
     }
 
     __afl_area_ptr = shm_base;
+    if (id_str_dfg) {
+      int dfg_shm_fd = shm_open(id_str_dfg, O_RDWR, DEFAULT_PERMISSION);
+      if (dfg_shm_fd != -1) {
+        __afl_area_dfg_ptr = (u32 *)mmap(0, sizeof(u32) * DFG_MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, dfg_shm_fd, 0);
+        close(dfg_shm_fd);
+      }
+      if (__afl_area_dfg_ptr == (void *)-1 || !__afl_area_dfg_ptr) {
+        _exit(1);
+      }
+    }
     /* DEFERRED IJON SETUP: Initialize on first use when actual map size is
      * known */
     /* This fixes PCGUARD mode where __afl_final_loc=0 at initialization time */
@@ -1079,6 +1092,14 @@ static void __afl_map_shm(void) {
       perror("shmat for map");
       _exit(1);
 
+    }
+
+    if (id_str_dfg) {
+      u32 shm_id_dfg = atoi(id_str_dfg);
+      __afl_area_dfg_ptr = (u32 *)shmat(shm_id_dfg, NULL, 0);
+      if (__afl_area_dfg_ptr == (void *)-1 || !__afl_area_dfg_ptr) {
+        _exit(1);
+      }
     }
 
 #endif
@@ -1811,6 +1832,7 @@ int __afl_persistent_loop(unsigned int max_cnt) {
        before the loop. */
 
     memset_noasan(__afl_area_ptr, 0, __afl_set_map_size);
+    memset_noasan(__afl_area_dfg_ptr, 0, sizeof(u32) * DFG_MAP_SIZE);
     /* Bug map lives past __afl_set_map_size (trailing tail of trace_bits);
        it needs an explicit zero or stale MAX-channel values persist. */
     if (__afl_bug_map_active && __afl_bug_map &&
@@ -1947,6 +1969,7 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
     __afl_alloc_persistent_reset(1);
     __afl_area_ptr = __afl_area_ptr_dummy;
+    __afl_area_dfg_ptr = __afl_area_initial_dfg;
 
     return 0;
 

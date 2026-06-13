@@ -432,6 +432,8 @@
 /* Environment variable used to pass SHM ID to the called program. */
 
 #define SHM_ENV_VAR "__AFL_SHM_ID"
+#define SHM_ENV_VAR_DFG     "__AFL_SHM_ID_DFG"
+#define DFG_MAP_SIZE        32568
 
 /* Environment variable used to pass shared memory fuzz map id
 and the mapping size to the called program. */

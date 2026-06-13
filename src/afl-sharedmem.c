@@ -130,9 +130,37 @@ void afl_shm_deinit(sharedmem_t *shm) {
 
   }
 
+  if (shm->dfg_mode) {
+
+    unsetenv(SHM_ENV_VAR_DFG);
+
+    if (shm->dfg_map != NULL) {
+
+      munmap(shm->dfg_map, sizeof(u32) * DFG_MAP_SIZE);
+      shm->dfg_map = NULL;
+
+    }
+
+    if (shm->dfg_g_shm_fd != -1) {
+
+      close(shm->dfg_g_shm_fd);
+      shm->dfg_g_shm_fd = -1;
+
+    }
+
+    if (shm->dfg_g_shm_file_path[0]) {
+
+      shm_unlink(shm->dfg_g_shm_file_path);
+      shm->dfg_g_shm_file_path[0] = 0;
+
+    }
+
+  }
+
 #else
   shmctl(shm->shm_id, IPC_RMID, NULL);
   if (shm->cmplog_mode) { shmctl(shm->cmplog_shm_id, IPC_RMID, NULL); }
+  if (shm->dfg_mode) { shmctl(shm->dfg_shm_id, IPC_RMID, NULL); }
 #endif
 
   shm->map = NULL;
@@ -151,11 +179,13 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
   shm->map = NULL;
   shm->cmp_map = NULL;
+  shm->dfg_map = NULL;
 
 #ifdef USEMMAP
 
   shm->g_shm_fd = -1;
   shm->cmplog_g_shm_fd = -1;
+  shm->dfg_g_shm_fd = -1;
 
   const int shmflags = O_RDWR | O_EXCL;
 
@@ -291,6 +321,54 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
   }
 
+  if (shm->dfg_mode) {
+
+    snprintf(shm->dfg_g_shm_file_path, L_tmpnam, "/afl_dfg_%d_%ld",
+             getpid(), random());
+
+    /* create the shared memory segment as if it was a file */
+    shm->dfg_g_shm_fd = shm_open(shm->dfg_g_shm_file_path,
+                                    O_CREAT | O_RDWR | O_EXCL, permission);
+    if (shm->dfg_g_shm_fd == -1) { PFATAL("shm_open() failed"); }
+    if (gid != -1) {
+
+      if (fchown(shm->dfg_g_shm_fd, -1, gid) == -1) { PFATAL("fchown() failed"); }
+
+    }
+
+    /* configure the size of the shared memory segment */
+    if (ftruncate(shm->dfg_g_shm_fd, sizeof(u32) * DFG_MAP_SIZE)) {
+
+      PFATAL("setup_shm(): dfg ftruncate() failed");
+
+    }
+
+    /* map the shared memory segment to the address space of the process */
+    shm->dfg_map = (u32 *)mmap(0, sizeof(u32) * DFG_MAP_SIZE, PROT_READ | PROT_WRITE,
+                        MAP_SHARED, shm->dfg_g_shm_fd, 0);
+    if (shm->dfg_map == MAP_FAILED) {
+
+      close(shm->dfg_g_shm_fd);
+      shm->dfg_g_shm_fd = -1;
+      shm_unlink(shm->dfg_g_shm_file_path);
+      shm->dfg_g_shm_file_path[0] = 0;
+      PFATAL("mmap() failed");
+
+    }
+
+    /* If somebody is asking us to fuzz instrumented binaries in
+       non-instrumented mode, we don't want them to detect instrumentation,
+       since we won't be sending fork server commands. This should be replaced
+       with better auto-detection later on, perhaps? */
+
+    if (!non_instrumented_mode)
+      setenv(SHM_ENV_VAR_DFG, shm->dfg_g_shm_file_path, 1);
+
+    if (shm->dfg_map == (void *)-1 || !shm->dfg_map)
+      PFATAL("dfg mmap() failed");
+
+  }
+
 #else
   u8             *shm_str;
   struct shmid_ds shmid_ds;
@@ -354,6 +432,38 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
 
   }
 
+  if (shm->dfg_mode) {
+
+    shm->dfg_shm_id = shmget(IPC_PRIVATE, sizeof(u32) * DFG_MAP_SIZE,
+                                IPC_CREAT | IPC_EXCL | permission);
+
+    if (shm->dfg_shm_id < 0) {
+
+      shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
+      if (shm->cmplog_mode) { shmctl(shm->cmplog_shm_id, IPC_RMID, NULL); }
+      PFATAL("shmget() failed, try running afl-system-config");
+
+    }
+
+    if (gid != -1) {
+
+      if (shmctl(shm->dfg_shm_id, IPC_STAT, &shmid_ds) == -1) {
+
+        PFATAL("shmctl(IPC_STAT) failed");
+
+      }
+
+      shmid_ds.shm_perm.gid = (gid_t)gid;
+      if (shmctl(shm->dfg_shm_id, IPC_SET, &shmid_ds) == -1) {
+
+        PFATAL("shmctl(IPC_SET) failed");
+
+      }
+
+    }
+
+  }
+
   if (!non_instrumented_mode) {
 
     shm_str = alloc_printf("%d", shm->shm_id);
@@ -374,6 +484,16 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
     shm_str = alloc_printf("%d", shm->cmplog_shm_id);
 
     setenv(CMPLOG_SHM_ENV_VAR, shm_str, 1);
+
+    ck_free(shm_str);
+
+  }
+
+  if (shm->dfg_mode && !non_instrumented_mode) {
+
+    shm_str = alloc_printf("%d", shm->dfg_shm_id);
+
+    setenv(SHM_ENV_VAR_DFG, shm_str, 1);
 
     ck_free(shm_str);
 
@@ -404,6 +524,28 @@ u8 *afl_shm_init(sharedmem_t *shm, size_t map_size,
       shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
 
       shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);  // do not leak shmem
+
+      PFATAL("shmat() failed");
+
+    }
+
+  }
+
+  if (shm->dfg_mode) {
+
+    shm->dfg_map = (u32 *)shmat(shm->dfg_shm_id, NULL, 0);
+
+    if (shm->dfg_map == (void *)-1 || !shm->dfg_map) {
+
+      shmctl(shm->shm_id, IPC_RMID, NULL);  // do not leak shmem
+
+      if (shm->cmplog_mode) {
+
+        shmctl(shm->cmplog_shm_id, IPC_RMID, NULL);  // do not leak shmem
+
+      }
+
+      shmctl(shm->dfg_shm_id, IPC_RMID, NULL);  // do not leak shmem
 
       PFATAL("shmat() failed");
 
