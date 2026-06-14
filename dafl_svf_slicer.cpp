@@ -25,22 +25,40 @@ bool parseSourceLoc(const std::string& loc, std::string& fl, int& ln) {
     size_t brace = loc.find("{");
     if (brace != std::string::npos) { // JSON format
         std::string json_part = loc.substr(brace);
-        size_t fl_pos = json_part.find("\"fl\":\"");
-        if (fl_pos != std::string::npos) {
-            size_t fl_end = json_part.find("\"", fl_pos + 6);
-            if (fl_end != std::string::npos) {
-                fl = json_part.substr(fl_pos + 6, fl_end - (fl_pos + 6));
-                size_t last_slash = fl.find_last_of('/');
-                if (last_slash != std::string::npos) {
-                    fl = fl.substr(last_slash + 1);
+        // Find "fl" key
+        size_t fl_key_pos = json_part.find("\"fl\"");
+        if (fl_key_pos != std::string::npos) {
+            size_t colon_pos = json_part.find(":", fl_key_pos);
+            if (colon_pos != std::string::npos) {
+                size_t val_start = json_part.find("\"", colon_pos);
+                if (val_start != std::string::npos) {
+                    size_t val_end = json_part.find("\"", val_start + 1);
+                    if (val_end != std::string::npos) {
+                        fl = json_part.substr(val_start + 1, val_end - (val_start + 1));
+                        size_t last_slash = fl.find_last_of('/');
+                        if (last_slash != std::string::npos) {
+                            fl = fl.substr(last_slash + 1);
+                        }
+                    }
                 }
             }
         }
-        size_t ln_pos = json_part.find("\"ln\":");
-        if (ln_pos != std::string::npos) {
-            size_t ln_end = json_part.find_first_of(",}", ln_pos + 5);
-            if (ln_end != std::string::npos) {
-                ln = std::stoi(json_part.substr(ln_pos + 5, ln_end - (ln_pos + 5)));
+        // Find "ln" key
+        size_t ln_key_pos = json_part.find("\"ln\"");
+        if (ln_key_pos != std::string::npos) {
+            size_t colon_pos = json_part.find(":", ln_key_pos);
+            if (colon_pos != std::string::npos) {
+                size_t val_start = json_part.find_first_not_of(" \t", colon_pos + 1);
+                if (val_start != std::string::npos) {
+                    size_t val_end = json_part.find_first_of(", \t}", val_start);
+                    if (val_end != std::string::npos) {
+                        try {
+                            ln = std::stoi(json_part.substr(val_start, val_end - val_start));
+                        } catch (...) {
+                            ln = 0;
+                        }
+                    }
+                }
             }
         }
         return !fl.empty() && ln > 0;
@@ -61,6 +79,93 @@ bool parseSourceLoc(const std::string& loc, std::string& fl, int& ln) {
         }
     }
     return false;
+}
+
+struct TraversalState {
+    const SVFGNode* node;
+    std::vector<unsigned int> call_stack;
+
+    bool operator==(const TraversalState& other) const {
+        return node == other.node && call_stack == other.call_stack;
+    }
+};
+
+struct TraversalStateHash {
+    std::size_t operator()(const TraversalState& state) const {
+        std::size_t h = std::hash<const SVFGNode*>{}(state.node);
+        for (unsigned int val : state.call_stack) {
+            h ^= std::hash<unsigned int>{}(val) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        return h;
+    }
+};
+
+bool isCallEdge(const SVFGEdge* edge, unsigned int& callsiteId) {
+    if (auto callDir = SVFUtil::dyn_cast<CallDirSVFGEdge>(edge)) {
+        callsiteId = callDir->getCallSiteId();
+        return true;
+    }
+    if (auto callInd = SVFUtil::dyn_cast<CallIndSVFGEdge>(edge)) {
+        callsiteId = callInd->getCallSiteId();
+        return true;
+    }
+    return false;
+}
+
+bool isRetEdge(const SVFGEdge* edge, unsigned int& callsiteId) {
+    if (auto retDir = SVFUtil::dyn_cast<RetDirSVFGEdge>(edge)) {
+        callsiteId = retDir->getCallSiteId();
+        return true;
+    }
+    if (auto retInd = SVFUtil::dyn_cast<RetIndSVFGEdge>(edge)) {
+        callsiteId = retInd->getCallSiteId();
+        return true;
+    }
+    return false;
+}
+
+bool isNodeBlacklisted(const SVFGNode* node, const std::string& target_file) {
+    static std::unordered_map<const SVFGNode*, bool> blacklist_cache;
+    auto it = blacklist_cache.find(node);
+    if (it != blacklist_cache.end()) {
+        return it->second;
+    }
+
+    bool res = false;
+    const ICFGNode* icfg = node->getICFGNode();
+    if (icfg) {
+        std::string loc = icfg->getSourceLoc();
+        std::string fl = "";
+        int ln = 0;
+        parseSourceLoc(loc, fl, ln);
+
+        std::string fl_lower = fl;
+        std::transform(fl_lower.begin(), fl_lower.end(), fl_lower.begin(), ::tolower);
+
+        // Exclude output script and formatting files (general I/O files)
+        if (fl_lower.find("output") != std::string::npos ||
+            fl_lower.find("vasprintf") != std::string::npos) {
+            res = true;
+        } else {
+            const FunObjVar* funObj = icfg->getFun();
+            if (funObj) {
+                std::string func_name = funObj->getName();
+                
+                // Blacklist custom print, string buffering, and logging utilities
+                static const std::unordered_set<std::string> blacklist = {
+                    "dcputs", "dcputchar", "dcprintf", "dcinit", "dcchkstr", "dcgetstr",
+                    "println", "vasprintf", "switchToOrigString", "setOrigString",
+                    "setTempString", "strcatext", "strcpyext", "strlenext", "dumpRegs"
+                };
+                
+                if (blacklist.find(func_name) != blacklist.end()) {
+                    res = true;
+                }
+            }
+        }
+    }
+    blacklist_cache[node] = res;
+    return res;
 }
 
 int main(int argc, char **argv) {
@@ -120,6 +225,8 @@ int main(int argc, char **argv) {
     std::cout << "Debugging first 20 non-empty source locations in SVFG nodes:\n";
     int debug_count = 0;
     std::vector<const SVFGNode*> target_nodes;
+    std::set<std::string> all_funcs;
+    std::set<std::string> all_nodes;
     for (auto it = svfg->begin(), eit = svfg->end(); it != eit; ++it) {
         const SVFGNode* node = it->second;
         const ICFGNode* icfg = node->getICFGNode();
@@ -135,8 +242,20 @@ int main(int argc, char **argv) {
             std::string fl = "";
             int ln = 0;
             if (parseSourceLoc(loc, fl, ln)) {
+                all_nodes.insert(fl + ":" + std::to_string(ln));
                 if (fl == target_file && ln == target_line) {
                     target_nodes.push_back(node);
+                }
+            }
+            const FunObjVar* funObj = icfg->getFun();
+            if (funObj) {
+                std::string func_name = funObj->getName();
+                if (!func_name.empty()) {
+                    if (!fl.empty()) {
+                        all_funcs.insert(fl + ":" + func_name);
+                    } else {
+                        all_funcs.insert(func_name);
+                    }
                 }
             }
         }
@@ -145,24 +264,69 @@ int main(int argc, char **argv) {
     std::cout << "Found " << target_nodes.size() << " target SVFG nodes matching '" << target_file << ":" << target_line << "'\n";
 
     // 6. Backward traversal on SVFG to find the backward data-flow slice
+    std::unordered_set<TraversalState, TraversalStateHash> visited_states;
     std::unordered_set<const SVFGNode*> visited;
-    std::queue<const SVFGNode*> q;
+    std::queue<TraversalState> q;
 
     for (const SVFGNode* node : target_nodes) {
-        visited.insert(node);
-        q.push(node);
+        if (!isNodeBlacklisted(node, target_file)) {
+            TraversalState init_state{node, {}};
+            visited_states.insert(init_state);
+            visited.insert(node);
+            q.push(init_state);
+        }
     }
 
     while (!q.empty()) {
-        const SVFGNode* curr = q.front();
+        TraversalState curr = q.front();
         q.pop();
 
-        for (auto edgeIt = curr->InEdgeBegin(); edgeIt != curr->InEdgeEnd(); ++edgeIt) {
+        for (auto edgeIt = curr.node->InEdgeBegin(); edgeIt != curr.node->InEdgeEnd(); ++edgeIt) {
             SVFGEdge* edge = static_cast<SVFGEdge*>(*edgeIt);
             const SVFGNode* src = edge->getSrcNode();
-            if (visited.find(src) == visited.end()) {
-                visited.insert(src);
-                q.push(src);
+
+            if (isNodeBlacklisted(src, target_file)) {
+                continue;
+            }
+
+            std::vector<unsigned int> next_stack = curr.call_stack;
+            bool allowed = true;
+
+            unsigned int callsiteId = 0;
+            if (isRetEdge(edge, callsiteId)) {
+                if (next_stack.size() < 3) {
+                    next_stack.push_back(callsiteId);
+                } else {
+                    allowed = false;
+                }
+            } else if (isCallEdge(edge, callsiteId)) {
+                if (!next_stack.empty()) {
+                    if (next_stack.back() == callsiteId) {
+                        next_stack.pop_back();
+                    } else {
+                        allowed = false;
+                    }
+                }
+            } else {
+                // Check if crossing functions on a non-call/ret edge
+                const ICFGNode* curr_icfg = curr.node->getICFGNode();
+                const ICFGNode* src_icfg = src->getICFGNode();
+                if (curr_icfg && src_icfg) {
+                    const FunObjVar* curr_fun = curr_icfg->getFun();
+                    const FunObjVar* src_fun = src_icfg->getFun();
+                    if (curr_fun && src_fun && curr_fun != src_fun) {
+                        next_stack.clear();
+                    }
+                }
+            }
+
+            if (allowed) {
+                TraversalState next_state{src, next_stack};
+                if (visited_states.find(next_state) == visited_states.end()) {
+                    visited_states.insert(next_state);
+                    visited.insert(src);
+                    q.push(next_state);
+                }
             }
         }
     }
@@ -174,7 +338,7 @@ int main(int argc, char **argv) {
     std::unordered_map<std::string, std::set<std::string>> line_edges;
     std::unordered_map<std::string, std::set<std::string>> reversed_line_edges;
     std::set<std::string> funcs;
-    funcs.insert(target_file + ":main"); // Always include main in the target file
+    funcs.insert("main.c:main"); // Always include main in the target file
 
     std::unordered_map<unsigned int, std::string> node_to_line;
 
@@ -206,61 +370,57 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Add edges in Line-level DFG
-    for (const SVFGNode* node : visited) {
-        if (node_to_line.find(node->getId()) == node_to_line.end()) continue;
-        std::string src_line = node_to_line[node->getId()];
+    // 8. Compute shortest-path distance to target using BFS on the SVFG (backward traversal)
+    std::unordered_map<const SVFGNode*, int> svfg_distances;
+    std::queue<const SVFGNode*> bfs_q;
 
-        for (auto edgeIt = node->OutEdgeBegin(); edgeIt != node->OutEdgeEnd(); ++edgeIt) {
-            SVFGEdge* edge = static_cast<SVFGEdge*>(*edgeIt);
-            const SVFGNode* dst = edge->getDstNode();
-            if (visited.find(dst) != visited.end()) {
-                if (node_to_line.find(dst->getId()) != node_to_line.end()) {
-                    std::string dst_line = node_to_line[dst->getId()];
-                    if (src_line != dst_line) {
-                        line_edges[src_line].insert(dst_line);
-                        reversed_line_edges[dst_line].insert(src_line);
-                    }
-                }
-            }
-        }
+    for (const SVFGNode* node : target_nodes) {
+        svfg_distances[node] = 0;
+        bfs_q.push(node);
     }
-
-    // 8. Compute shortest-path distance to target using BFS on reversed graph
-    std::string target_line_str = target_file + ":" + std::to_string(target_line);
-    if (line_nodes.find(target_line_str) == line_nodes.end()) {
-        line_nodes.insert(target_line_str);
-    }
-
-    std::unordered_map<std::string, int> distances;
-    std::queue<std::string> bfs_q;
-
-    distances[target_line_str] = 0;
-    bfs_q.push(target_line_str);
 
     while (!bfs_q.empty()) {
-        std::string curr = bfs_q.front();
+        const SVFGNode* curr = bfs_q.front();
         bfs_q.pop();
 
-        int curr_dist = distances[curr];
-        if (reversed_line_edges.find(curr) != reversed_line_edges.end()) {
-            for (const std::string& pred : reversed_line_edges[curr]) {
-                if (distances.find(pred) == distances.end()) {
-                    distances[pred] = curr_dist + 1;
-                    bfs_q.push(pred);
+        int curr_dist = svfg_distances[curr];
+        for (auto edgeIt = curr->InEdgeBegin(); edgeIt != curr->InEdgeEnd(); ++edgeIt) {
+            SVFGEdge* edge = static_cast<SVFGEdge*>(*edgeIt);
+            const SVFGNode* src = edge->getSrcNode();
+            if (visited.find(src) != visited.end()) {
+                if (svfg_distances.find(src) == svfg_distances.end()) {
+                    svfg_distances[src] = curr_dist + 1;
+                    bfs_q.push(src);
                 }
             }
         }
     }
+
+    // Map SVFG node distances to Line-level distances
+    std::unordered_map<std::string, int> line_distances;
+    for (const auto& kv : svfg_distances) {
+        const SVFGNode* node = kv.first;
+        int dist = kv.second;
+        if (node_to_line.find(node->getId()) != node_to_line.end()) {
+            std::string line_str = node_to_line[node->getId()];
+            if (line_distances.find(line_str) == line_distances.end() || dist < line_distances[line_str]) {
+                line_distances[line_str] = dist;
+            }
+        }
+    }
+
+    // Always make sure target line is at distance 0
+    std::string target_line_str = target_file + ":" + std::to_string(target_line);
+    line_distances[target_line_str] = 0;
 
     // Compute DFG node scores: score = max_dist - dist + 1
     std::map<std::string, int> dfg_nodes_scores;
-    if (!distances.empty()) {
+    if (!line_distances.empty()) {
         int max_dist = 0;
-        for (const auto& kv : distances) {
+        for (const auto& kv : line_distances) {
             if (kv.second > max_dist) max_dist = kv.second;
         }
-        for (const auto& kv : distances) {
+        for (const auto& kv : line_distances) {
             dfg_nodes_scores[kv.first] = max_dist - kv.second + 1;
         }
     }
@@ -277,10 +437,31 @@ int main(int argc, char **argv) {
         
     // Save slice_dfg.txt
     std::ofstream dfg_file(output_dir + "/slice_dfg.txt");
-    for (const auto& kv : dfg_nodes_scores) {
+    std::vector<std::pair<std::string, int>> sorted_scores(dfg_nodes_scores.begin(), dfg_nodes_scores.end());
+    std::sort(sorted_scores.begin(), sorted_scores.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second) {
+            return a.second < b.second; // Ascending order of score
+        }
+        return a.first < b.first; // Alphabetical order if scores are equal
+    });
+    for (const auto& kv : sorted_scores) {
         dfg_file << kv.second << " " << kv.first << "\n";
     }
     dfg_file.close();
+
+    // Save all_funcs.txt
+    std::ofstream all_func_file(output_dir + "/all_funcs.txt");
+    for (const std::string& func : all_funcs) {
+        all_func_file << func << "\n";
+    }
+    all_func_file.close();
+
+    // Save all_nodes.txt
+    std::ofstream all_node_file(output_dir + "/all_nodes.txt");
+    for (const std::string& node_str : all_nodes) {
+        all_node_file << node_str << "\n";
+    }
+    all_node_file.close();
 
     std::cout << "Slicing finished. Outputs written to " << output_dir << "\n";
     std::cout << " - Sliced functions count: " << funcs.size() << "\n";
