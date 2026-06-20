@@ -1,3 +1,16 @@
+/*
+   american fuzzy lop++ - part of the AFL++ project
+   ------------------------------------------------
+
+   Copyright 2019-2026 AFLplusplus Project. All rights reserved.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may obtain a copy at https://www.apache.org/licenses/LICENSE-2.0
+
+   SPDX-License-Identifier: Apache-2.0
+
+ */
+
 #ifndef __AFLLLVMCOMMON_H
 #define __AFLLLVMCOMMON_H
 
@@ -55,6 +68,7 @@ bool                   isDecisionUse(const llvm::Value *Cond);
 bool                   isExecCall(llvm::Instruction *IN);
 std::pair<bool, bool>  detectIJONUsage(llvm::Module &M);
 void createIJONEnabledGlobal(llvm::Module &M, llvm::Type *Int32Ty);
+void createC11EnabledGlobal(llvm::Module &M, llvm::Type *Int32Ty);
 llvm::GlobalVariable *createIJONStateGlobal(llvm::Module &M,
                                             llvm::Type   *Int32Ty,
                                             bool          uses_ijon_state);
@@ -109,6 +123,25 @@ inline void setNoSanitizeMetadata(llvm::Instruction *I) {
 
 }
 
+/* True when BB has at least one non-terminator instruction and every
+   non-terminator, non-debug instruction carries afl.skip, i.e. the block holds
+   only synthetic AFL code. The ">=1 instruction" guard keeps branch-only blocks
+   instrumented. */
+inline bool isFullyArtificialBlock(const llvm::BasicBlock *BB) {
+
+  bool seen = false;
+  for (const llvm::Instruction &I : *BB) {
+
+    if (I.isTerminator() || I.isDebugOrPseudoInst()) continue;
+    if (!I.getMetadata("afl.skip")) return false;
+    seen = true;
+
+  }
+
+  return seen;
+
+}
+
 /* Load __afl_area_ptr once at function entry and return the loaded value.
    Creates a preamble basic block so later per-block instrumentation never
    sees or displaces this load.  The load is marked invariant because
@@ -143,7 +176,11 @@ inline llvm::Value *hoistMapPointerLoad(llvm::Function       &F,
 
   /* Move static allocas into the preamble so ASan keeps them function-wide. */
   for (auto *AI : StaticAllocas)
+#if LLVM_MAJOR >= 20
+    AI->moveBefore(Load->getIterator());
+#else
     AI->moveBefore(Load);
+#endif
 
   return Load;
 

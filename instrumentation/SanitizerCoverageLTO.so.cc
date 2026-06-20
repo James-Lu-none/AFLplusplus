@@ -1,3 +1,5 @@
+// SanitizerCoverage.cpp ported to AFL++ LTO; derived from the LLVM Project.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 /* SanitizeCoverage.cpp ported to AFL++ LTO :-) */
 
 #define AFL_LLVM_PASS
@@ -65,7 +67,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
-#if LLVM_MAJOR >= 22
+#if defined(__has_include) && __has_include("llvm/Plugins/PassPlugin.h")
   #include "llvm/Plugins/PassPlugin.h"
 #else
   #include "llvm/Passes/PassPlugin.h"
@@ -218,10 +220,8 @@ class ModuleSanitizerCoverageLTO
      isGuardOnlyBB sees the source-level BBs, not BBs polluted by edge-
      counter stores).  Stores per-function results in path* members. */
   bool     analyzePathCoverage(Function &F);
-  uint64_t instrumentPathCoverage(Function           &F,
-                                  const DominatorTree *DT,
-                                  uint32_t            call_counter,
-                                  LoadInst           *PrevCtxLoad);
+  uint64_t instrumentPathCoverage(Function &F, const DominatorTree *DT,
+                                  uint32_t call_counter, LoadInst *PrevCtxLoad);
 
   std::string    getSectionName(const std::string &Section) const;
   FunctionCallee SanCovTracePC /*, SanCovTracePCGuard*/;
@@ -242,28 +242,27 @@ class ModuleSanitizerCoverageLTO
   // AFL++ START
   // const SpecialCaseList *          Allowlist;
   // const SpecialCaseList *          Blocklist;
-  uint32_t                         autodictionary = 1;
-  uint32_t                         autodictionary_no_main = 0;
-  uint32_t                         inst = 0;
-  uint32_t                         afl_global_id = 0;
-  uint32_t                         unhandled = 0;
-  uint32_t                         decision_cnt = 0;
-  uint32_t                         instrument_ctx = 0;
-  uint32_t                         instrument_ctx_max_depth = 0;
-  uint32_t                         extra_ctx_inst = 0;
-  bool                             path_mode = false;       // Ball-Larus path
-  uint32_t                         path_mode_level = 0;     // 1=relaxed, 2=restricted, 3=strict
-  uint64_t                         extra_path_inst = 0;     // sum of paths
-  uint32_t                         path_skipped_funcs = 0;  // skipped funcs
-  uint64_t                         path_max_paths = 100000;
+  uint32_t autodictionary = 1;
+  uint32_t autodictionary_no_main = 0;
+  uint32_t inst = 0;
+  uint32_t afl_global_id = 0;
+  uint32_t unhandled = 0;
+  uint32_t decision_cnt = 0;
+  uint32_t instrument_ctx = 0;
+  uint32_t instrument_ctx_max_depth = 0;
+  uint32_t extra_ctx_inst = 0;
+  bool     path_mode = false;       // Ball-Larus path
+  uint32_t path_mode_level = 0;     // 1=relaxed, 2=restricted, 3=strict
+  uint64_t extra_path_inst = 0;     // sum of paths
+  uint32_t path_skipped_funcs = 0;  // skipped funcs
+  uint64_t path_max_paths = 100000;
   /* Populated by analyzePathCoverage() before InjectCoverage runs and
      consumed by instrumentPathCoverage() afterwards.  See PathCoverage.h. */
   llvm::DenseMap<llvm::BasicBlock *, uint64_t> pathNumPaths;
   llvm::DenseMap<std::pair<llvm::BasicBlock *, llvm::BasicBlock *>, uint64_t>
-                                                pathEdgeVal;
-  std::vector<std::pair<llvm::BasicBlock *, llvm::Instruction *>>
-                                                pathExits;
-  uint64_t                                      pathNumEntry = 0;
+                                                                  pathEdgeVal;
+  std::vector<std::pair<llvm::BasicBlock *, llvm::Instruction *>> pathExits;
+  uint64_t                         pathNumEntry = 0;
   uint64_t                         map_addr = 0;
   const char                      *skip_nozero = NULL;
   const char                      *use_threadsafe_counters = nullptr;
@@ -373,9 +372,6 @@ llvmGetPassPluginInfo() {
           /* lambda to insert our pass into the pass pipeline. */
           [](PassBuilder &PB) {
 
-#if LLVM_VERSION_MAJOR <= 13
-            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
-#endif
 #if LLVM_VERSION_MAJOR >= 15
             PB.registerFullLinkTimeOptimizationLastEPCallback(
 #else
@@ -799,6 +795,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
             p);
 
       }
+
       path_mode = (path_mode_level > 0);
 
     }
@@ -807,18 +804,18 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   if (const char *mp = getenv("AFL_LLVM_PATH_MAX_PATHS")) {
 
-    char *end = nullptr;
+    char              *end = nullptr;
     unsigned long long v = strtoull(mp, &end, 10);
     if (!end || *end || v < 2 || v > (unsigned long long)INT32_MAX) {
 
       /* INT32_MAX upper bound: the IR path index is held in a signed
          i32 register, so any value beyond that would let path_base +
          path_reg overflow the bitmap GEP. */
-      FATAL(
-          "AFL_LLVM_PATH_MAX_PATHS must be an integer in [2, %d] (got %s).",
-          INT32_MAX, mp);
+      FATAL("AFL_LLVM_PATH_MAX_PATHS must be an integer in [2, %d] (got %s).",
+            INT32_MAX, mp);
 
     }
+
     path_max_paths = (uint64_t)v;
 
   }
@@ -843,7 +840,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   if ((isatty(2) && !getenv("AFL_QUIET")) || debug) {
 
-    char buf[160] = {};
+    char        buf[160] = {};
     const char *path_label;
     switch (path_mode_level) {
 
@@ -861,6 +858,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
         break;
 
     }
+
     if (instrument_ctx && path_mode) {
 
       snprintf(buf, sizeof(buf), " (CTX mode, depth %u, %s)",
@@ -944,8 +942,11 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   if (!map_addr) {
 
-    AFLMapPtr = new GlobalVariable(
-        M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
+    // may already exist: the C11 pass creates it earlier at PipelineStartEP
+    AFLMapPtr = M.getGlobalVariable("__afl_area_ptr");
+    if (!AFLMapPtr)
+      AFLMapPtr = new GlobalVariable(
+          M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
 
   } else {
 
@@ -1660,26 +1661,42 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
                getenv("AFL_USE_TSAN") ? ", TSAN" : "",
                getenv("AFL_USE_CFISAN") ? ", CFISAN" : "",
                getenv("AFL_USE_UBSAN") ? ", UBSAN" : "");
-      char buf[160] = {};
-      char *p = buf;
+      char   buf[160] = {};
+      char  *p = buf;
       size_t left = sizeof(buf);
       if (instrument_ctx) {
 
-        int n =
-            snprintf(p, left, " with %u extra map entries for CTX",
-                     extra_ctx_inst);
-        if (n > 0 && (size_t)n < left) { p += n; left -= n; }
+        int n = snprintf(p, left, " with %u extra map entries for CTX",
+                         extra_ctx_inst);
+        if (n > 0 && (size_t)n < left) {
+
+          p += n;
+          left -= n;
+
+        }
 
       }
+
       if (path_mode) {
 
         int n = snprintf(p, left, " with %llu extra map entries for PATH",
                          (unsigned long long)extra_path_inst);
-        if (n > 0 && (size_t)n < left) { p += n; left -= n; }
+        if (n > 0 && (size_t)n < left) {
+
+          p += n;
+          left -= n;
+
+        }
+
         if (path_skipped_funcs) {
 
           n = snprintf(p, left, " (%u funcs skipped)", path_skipped_funcs);
-          if (n > 0 && (size_t)n < left) { p += n; left -= n; }
+          if (n > 0 && (size_t)n < left) {
+
+            p += n;
+            left -= n;
+
+          }
 
         }
 
@@ -1882,6 +1899,8 @@ static bool shouldInstrumentBlock(const Function &F, const BasicBlock *BB,
   // Don't insert coverage into blocks without a valid insertion point
   // (catchswitch blocks).
   if (BB->getFirstInsertionPt() == BB->end()) return false;
+
+  if (&F.getEntryBlock() != BB && isFullyArtificialBlock(BB)) return false;
 
   // AFL++ START
   if (!Options.NoPrune && &F.getEntryBlock() == BB && F.size() > 1)
@@ -2162,7 +2181,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
             } else
 
-#if LLVM_VERSION_MAJOR >= 14
                 if (t->getTypeID() == llvm::Type::FixedVectorTyID) {
 
               FixedVectorType *tt = dyn_cast<FixedVectorType>(t);
@@ -2182,7 +2200,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
             } else
 
-#endif
             {
 
               continue;
@@ -2283,11 +2300,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
             BasicBlock::iterator IP = BB.getFirstInsertionPt();
             IRBuilder<>          IRB(&(*IP));
 
-            PrevCtxLoad = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-                IRB.getInt32Ty(),
-#endif
-                AFLContext);
+            PrevCtxLoad = IRB.CreateLoad(IRB.getInt32Ty(), AFLContext);
             PrevCtxLoad->setMetadata("nosanitize", N);
 
             CTX_offset = IRB.CreateMul(
@@ -2352,11 +2365,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
   auto applyCtxOffset = [&](IRBuilder<> &IRB, Value *V) -> Value * {
 
     if (!CTX_add) return V;
-    LoadInst *CTX_load = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-        IRB.getInt32Ty(),
-#endif
-        CTX_add);
+    LoadInst *CTX_load = IRB.CreateLoad(IRB.getInt32Ty(), CTX_add);
     setNoSanitizeMetadata(CTX_load);
     return IRB.CreateAdd(V, CTX_load);
 
@@ -2418,12 +2427,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       if (use_threadsafe_counters) {
 
-        auto result =
-            IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                                llvm::MaybeAlign(1),
-#endif
-                                llvm::AtomicOrdering::Monotonic);
+        auto result = IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add,
+                                          MapPtrIdx, One, llvm::MaybeAlign(1),
+                                          llvm::AtomicOrdering::Monotonic);
 
         markAflSkip(result);
 
@@ -2587,7 +2593,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         } else
 
-#if LLVM_VERSION_MAJOR >= 14
             if (t->getTypeID() == llvm::Type::FixedVectorTyID) {
 
           FixedVectorType *tt = dyn_cast<FixedVectorType>(t);
@@ -2651,7 +2656,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         } else
 
-#endif
         {
 
           ++unhandled;
@@ -2868,17 +2872,10 @@ GlobalVariable *ModuleSanitizerCoverageLTO::CreateFunctionLocalArrayInSection(
       *CurModule, ArrayTy, false, GlobalVariable::PrivateLinkage,
       Constant::getNullValue(ArrayTy), "__sancov_gen_");
 
-#if LLVM_VERSION_MAJOR >= 13
   if (TargetTriple.supportsCOMDAT() &&
       (TargetTriple.isOSBinFormatELF() || !F.isInterposable()))
     if (auto Comdat = getOrCreateFunctionComdat(F, TargetTriple))
       Array->setComdat(Comdat);
-#else
-  if (TargetTriple.supportsCOMDAT() && !F.isInterposable())
-    if (auto Comdat =
-            GetOrCreateFunctionComdat(F, TargetTriple, CurModuleUniqueId))
-      Array->setComdat(Comdat);
-#endif
   Array->setSection(getSectionName(Section));
   Array->setAlignment(Align(DL->getTypeStoreSize(Ty).getFixedValue()));
   GlobalsToAppendToUsed.push_back(Array);
@@ -3026,11 +3023,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
-#if LLVM_VERSION_MAJOR >= 12
         ->setCannotMerge();  // gets the PC using GET_CALLER_PC.
-#else
-        ->cannotMerge();  // gets the PC using GET_CALLER_PC.
-#endif
 
   }
 
@@ -3055,11 +3048,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
 
     if (CTX_add) {
 
-      LoadInst *CTX_load = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-          IRB.getInt32Ty(),
-#endif
-          CTX_add);
+      LoadInst *CTX_load = IRB.CreateLoad(IRB.getInt32Ty(), CTX_add);
       setNoSanitizeMetadata(CTX_load);
       val = IRB.CreateAdd(CurLoc, CTX_load);
 
@@ -3096,10 +3085,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
     if (use_threadsafe_counters) {                                /* Atomic */
 
       IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                          llvm::MaybeAlign(1),
-#endif
-                          llvm::AtomicOrdering::Monotonic);
+                          llvm::MaybeAlign(1), llvm::AtomicOrdering::Monotonic);
 
     } else {
 
@@ -3171,6 +3157,7 @@ bool ModuleSanitizerCoverageLTO::analyzePathCoverage(Function &F) {
     return false;
 
   }
+
   if (R.simplified) {
 
     WARNF(
@@ -3179,11 +3166,12 @@ bool ModuleSanitizerCoverageLTO::analyzePathCoverage(Function &F) {
         F.getName().str().c_str(), (unsigned long long)R.numPaths);
 
   }
+
   if (R.numPaths == 0) return false;
 
-  pathExits    = std::move(R.exits);
+  pathExits = std::move(R.exits);
   pathNumPaths = std::move(R.numPathsAtBB);
-  pathEdgeVal  = std::move(R.edgeValues);
+  pathEdgeVal = std::move(R.edgeValues);
   pathNumEntry = R.numPaths;
   return true;
 
@@ -3210,17 +3198,17 @@ uint64_t ModuleSanitizerCoverageLTO::instrumentPathCoverage(
   IntegerType *Int32 = Type::getInt32Ty(Ctx);
   MDNode      *NoSan = MDNode::get(Ctx, MDString::get(Ctx, "nosanitize"));
 
-  uint64_t numEntry = pathNumEntry;
-  const auto &Exits    = pathExits;
+  uint64_t    numEntry = pathNumEntry;
+  const auto &Exits = pathExits;
   const auto &NumPaths = pathNumPaths;
-  const auto &EdgeVal  = pathEdgeVal;
+  const auto &EdgeVal = pathEdgeVal;
 
   /* 5. Reserve afl_global_id range.  When CTX expanded this function,
      reserve NumPaths * call_counter so each (call_id, path) tuple has
      its own slot.  Otherwise reserve NumPaths.                         */
   bool     ctx_active = (call_counter > 1) && PrevCtxLoad != nullptr;
-  uint64_t reservation = ctx_active ? numEntry * (uint64_t)call_counter
-                                    : numEntry;
+  uint64_t reservation =
+      ctx_active ? numEntry * (uint64_t)call_counter : numEntry;
   /* The IR uses a signed i32 for the path index. The GEP into the
      bitmap sign-extends i32 → pointer-width, so any index >= 2^31
      becomes a large negative byte offset and writes OOB. Cap at
@@ -3237,6 +3225,7 @@ uint64_t ModuleSanitizerCoverageLTO::instrumentPathCoverage(
     return 0;
 
   }
+
   uint32_t path_base = afl_global_id;
   afl_global_id += (uint32_t)reservation;
   extra_path_inst += reservation;
@@ -3294,15 +3283,13 @@ uint64_t ModuleSanitizerCoverageLTO::instrumentPathCoverage(
       EffMapPtr = L;
 
     }
+
     Value *MapPtrIdx = IRB.CreateGEP(Int8Ty, EffMapPtr, idx64);
 
     if (use_threadsafe_counters) {
 
       IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                          llvm::MaybeAlign(1),
-#endif
-                          llvm::AtomicOrdering::Monotonic);
+                          llvm::MaybeAlign(1), llvm::AtomicOrdering::Monotonic);
 
     } else {
 
@@ -3315,6 +3302,7 @@ uint64_t ModuleSanitizerCoverageLTO::instrumentPathCoverage(
         Incr = IRB.CreateBinaryIntrinsic(Intrinsic::umax, Incr, One);
 
       }
+
       StoreInst *st = IRB.CreateStore(Incr, MapPtrIdx);
       st->setMetadata("nosanitize", NoSan);
 
@@ -3366,9 +3354,7 @@ static RegisterStandardPasses RegisterCompTransPass(
 static RegisterStandardPasses RegisterCompTransPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerLTOPass);
 
-  #if LLVM_VERSION_MAJOR >= 11
 static RegisterStandardPasses RegisterCompTransPassLTO(
     PassManagerBuilder::EP_FullLinkTimeOptimizationLast, registerLTOPass);
-  #endif
 #endif
 
