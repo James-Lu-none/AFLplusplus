@@ -80,6 +80,24 @@ static inline long sys_futex(void *uaddr, int op, int val,
 
 }
 
+static inline void afl_sync_wake(void *uaddr) {
+
+  sys_futex(uaddr, FUTEX_WAKE, 1, NULL, NULL, 0);
+
+}
+
+#elif defined(__APPLE__)
+  #include <os/os_sync_wait_on_address.h>
+  #include <mach/mach_time.h>
+  #include <sys/syscall.h>
+
+static inline void afl_sync_wake(void *uaddr) {
+
+  os_sync_wake_by_address_any(uaddr, sizeof(u32),
+                              OS_SYNC_WAKE_BY_ADDRESS_SHARED);
+
+}
+
 #elif !defined(__HAIKU__) && !defined(__OpenBSD__)
   #include <sys/syscall.h>
 #endif
@@ -214,6 +232,8 @@ u64 *__afl_ijon_bits = __afl_ijon_initial;  // Initial buffer, will point to
 u32 __afl_ijon_map_size = MAP_SIZE_IJON_ENTRIES;
 u32 __afl_ijon_map_increased = 0;
 u32 __afl_ijon_enabled __attribute__((weak)) = 0;
+
+u32 __afl_c11_enabled __attribute__((weak)) = 0;
 
 /* Bug-pass runtime globals (afl-llvm-bug-pass.so support) */
 #include "../include/bug-pass.h"
@@ -766,7 +786,7 @@ static void __afl_map_shm(void) {
   if (__afl_already_initialized_shm) return;
   __afl_already_initialized_shm = 1;
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
   {
 
     char *child_sync_shm = getenv("AFL_CHILD_SYNC_SHM");
@@ -805,6 +825,8 @@ static void __afl_map_shm(void) {
     __afl_ijon_map_increased = 1;
 
   }
+
+  if (getenv("AFL_NO_C11")) { __afl_c11_enabled = 0; }
 
   char *id_str = getenv(SHM_ENV_VAR);
   char *id_str_dfg = getenv(SHM_ENV_VAR_DFG);
@@ -1448,6 +1470,8 @@ static void __afl_start_forkserver(void) {
 
   void (*old_sigchld_handler)(int) = signal(SIGCHLD, SIG_DFL);
 
+  if (getenv("AFL_NO_C11")) { __afl_c11_enabled = 0; }
+
   if (getenv("AFL_NO_IJON")) {
 
     __afl_ijon_enabled = 0;
@@ -1560,6 +1584,9 @@ static void __afl_start_forkserver(void) {
 
     /* Add IJON capability flag if IJON is enabled */
     if (__afl_ijon_enabled) { status |= FS_OPT_IJON; }
+
+    /* Add C11 capability flag if C11 is enabled */
+    if (__afl_c11_enabled) { status |= FS_OPT_C11; }
 
     /* Signal that the last MAP_SIZE_BUG_BYTES of trace_bits are the bug
        map, not coverage.  The fuzzer subtracts this in
@@ -1700,7 +1727,7 @@ static void __afl_start_forkserver(void) {
 
     if (unlikely(!child_stopped)) {
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
       /* Clear any stale AFL_CHILD_EXITED in the futex before forking the
          new child.  Our previous-iteration EXITED write (above) and the
          fuzzer's IDLE write (at end of run_target) are unordered, so the
@@ -1796,13 +1823,13 @@ static void __afl_start_forkserver(void) {
 
     }
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
     if (!child_stopped && likely(__afl_child_sync)) {
 
       /* Child exited (crash or normal cycle end). Signal the fuzzer
          via futex; pipe data is already written above. */
       __atomic_store_n(__afl_child_sync, AFL_CHILD_EXITED, __ATOMIC_RELEASE);
-      sys_futex(__afl_child_sync, FUTEX_WAKE, 1, NULL, NULL, 0);
+      afl_sync_wake(__afl_child_sync);
 
     }
 
@@ -1819,6 +1846,9 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
   static u8  first_pass = 1;
   static u32 cycle_cnt;
+#ifdef __APPLE__
+  static pid_t afl_orig_ppid = 0;
+#endif
 
 #ifdef AFL_PERSISTENT_RECORD
   char tcase[PATH_MAX];
@@ -1848,6 +1878,9 @@ int __afl_persistent_loop(unsigned int max_cnt) {
     __afl_alloc_persistent_reset(0);
 
     first_pass = 0;
+#ifdef __APPLE__
+    afl_orig_ppid = getppid();
+#endif
     __afl_selective_coverage_temp = 1;
 
 #ifdef AFL_PERSISTENT_RECORD
@@ -1904,7 +1937,7 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
     __afl_alloc_persistent_reset(1);
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
     if (likely(__afl_child_sync)) {
 
       /* Signal the fuzzer that this iteration is complete.
@@ -1927,16 +1960,29 @@ int __afl_persistent_loop(unsigned int max_cnt) {
 
       }
 
-      sys_futex(__afl_child_sync, FUTEX_WAKE, 1, NULL, NULL, 0);
+      afl_sync_wake(__afl_child_sync);
 
       /* Wait until the fuzzer signals us to run the next test case.
-         No timeout needed: PR_SET_PDEATHSIG ensures the kernel delivers
-         SIGKILL if the forkserver (our parent) dies. */
+         On Linux no timeout is needed: PR_SET_PDEATHSIG ensures the kernel
+         delivers SIGKILL if the forkserver (our parent) dies. */
       u32 sync_val;
       while ((sync_val = __atomic_load_n(__afl_child_sync, __ATOMIC_ACQUIRE)) ==
              AFL_CHILD_DONE) {
 
+  #ifdef __linux__
         sys_futex(__afl_child_sync, FUTEX_WAIT, AFL_CHILD_DONE, NULL, NULL, 0);
+  #else
+        int r = os_sync_wait_on_address_with_timeout(
+            __afl_child_sync, (uint64_t)AFL_CHILD_DONE, sizeof(u32),
+            OS_SYNC_WAIT_ON_ADDRESS_SHARED, OS_CLOCK_MACH_ABSOLUTE_TIME,
+            250ULL * 1000ULL * 1000ULL);
+        if (r == -1 && errno == ETIMEDOUT && getppid() != afl_orig_ppid) {
+
+          _exit(0);
+
+        }
+
+  #endif
 
       }
 
@@ -2171,16 +2217,8 @@ void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
 
   */
 
-#if (LLVM_VERSION_MAJOR < 9)
-
-  __afl_area_ptr[*guard]++;
-
-#else
-
   __afl_area_ptr[*guard] =
       __afl_area_ptr[*guard] + 1 + (__afl_area_ptr[*guard] == 255 ? 1 : 0);
-
-#endif
 
 }
 
@@ -5303,6 +5341,7 @@ void __afl_alloc_oracle_typed(const void *ptr, uint32_t elem_size,
   if (!idx || idx >= MAP_SIZE_ALLOCRECORDS) return;
   AllocSizeRecord *r = __afl_alloc_find_oracle_record(a, tbl, off, idx);
   if (!r) return;
+  if (a != r->base) return;
 
   /* First-elem-size wins: only the first store at this allocation
      stamps the (size, align) pair; later stores compare against it. */

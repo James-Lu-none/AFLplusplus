@@ -178,7 +178,7 @@ typedef struct aflcc_state {
 
   u8 instrument_mode, instrument_opt_mode, ngram_size, ctx_k;
 
-  u8 cmplog_mode;
+  u8 cmplog_mode, c11_mode;
 
   u8 have_instr_env, have_gcc, have_clang, have_llvm, have_gcc_plugin, have_lto,
       have_optimized_pcguard, have_instr_list, wnoerror;
@@ -266,21 +266,14 @@ static inline void load_llvm_pass(aflcc_state_t *aflcc, u8 *pass) {
 
   }
 
-#if LLVM_MAJOR >= 11                                /* use new pass manager */
-  #if LLVM_MAJOR < 16
-    #if LLVM_MAJOR < 15
+#if LLVM_MAJOR < 16
+  #if LLVM_MAJOR < 15
   insert_param(aflcc, "-fno-legacy-pass-manager");
-    #else
+  #else
   insert_param(aflcc, "-fexperimental-new-pass-manager");
-    #endif
   #endif
-  insert_object(aflcc, pass, "-fpass-plugin=%s", 0);
-#else
-  insert_param(aflcc, "-Xclang");
-  insert_param(aflcc, "-load");
-  insert_param(aflcc, "-Xclang");
-  insert_object(aflcc, pass, 0, 0);
 #endif
+  insert_object(aflcc, pass, "-fpass-plugin=%s", 0);
 
 }
 
@@ -602,7 +595,7 @@ void find_built_deps(aflcc_state_t *aflcc) {
 
   }
 
-#if (LLVM_MAJOR >= 3)
+#if LLVM_MAJOR
 
   if ((ptr = find_object(aflcc, "SanitizerCoverageLTO.so")) != NULL) {
 
@@ -662,7 +655,7 @@ void compiler_mode_by_callname(aflcc_state_t *aflcc) {
         the actual compiler complain if doesn't work.
       - Otherwise try default llvm instruments except LTO.
     */
-#if (LLVM_MAJOR >= 3)
+#if LLVM_MAJOR
     aflcc->compiler_mode = LLVM;
 #else
     aflcc->compiler_mode = CLANG;
@@ -670,7 +663,7 @@ void compiler_mode_by_callname(aflcc_state_t *aflcc) {
 
   } else
 
-#if (LLVM_MAJOR >= 3)
+#if LLVM_MAJOR
 
       if (strncmp(aflcc->callname, "afl-clang-lto", 13) == 0 ||
 
@@ -1351,24 +1344,8 @@ void mode_final_checkout(aflcc_state_t *aflcc, int argc, char **argv) {
 
   if (aflcc->instrument_mode == 0 && aflcc->compiler_mode < GCC_PLUGIN) {
 
-#if LLVM_MAJOR >= 7
-  #if LLVM_MAJOR < 11 && (LLVM_MAJOR < 10 || LLVM_MINOR < 1)
-    if (aflcc->have_instr_env) {
-
-      aflcc->instrument_mode = INSTRUMENT_AFL;
-      if (!be_quiet) {
-
-        WARNF(
-            "Switching to classic instrumentation because "
-            "AFL_LLVM_ALLOWLIST/DENYLIST does not work with PCGUARD < 10.0.1.");
-
-      }
-
-    } else
-
-  #endif
-      aflcc->instrument_mode = INSTRUMENT_PCGUARD;
-
+#if LLVM_MAJOR
+    aflcc->instrument_mode = INSTRUMENT_PCGUARD;
 #else
     aflcc->instrument_mode = INSTRUMENT_AFL;
 #endif
@@ -1405,18 +1382,6 @@ void mode_final_checkout(aflcc_state_t *aflcc, int argc, char **argv) {
         "AFL_LLVM_NOT_ZERO and AFL_LLVM_SKIP_NEVERZERO can not be set "
         "together");
 
-#if LLVM_MAJOR < 11 && (LLVM_MAJOR < 10 || LLVM_MINOR < 1)
-
-  if (aflcc->instrument_mode == INSTRUMENT_PCGUARD && aflcc->have_instr_env) {
-
-    FATAL(
-        "Instrumentation type PCGUARD does not support "
-        "AFL_LLVM_ALLOWLIST/DENYLIST! Use LLVM 10.0.1+ instead.");
-
-  }
-
-#endif
-
   instrument_opt_mode_exclude(aflcc);
 
   u8 *ptr2;
@@ -1442,6 +1407,8 @@ void mode_final_checkout(aflcc_state_t *aflcc, int argc, char **argv) {
 
   aflcc->cmplog_mode = getenv("AFL_CMPLOG") || getenv("AFL_LLVM_CMPLOG") ||
                        getenv("AFL_GCC_CMPLOG");
+
+  aflcc->c11_mode = getenv("AFL_LLVM_C11") != NULL;
 
 }
 
@@ -2062,9 +2029,11 @@ void add_sanitizers(aflcc_state_t *aflcc, char **envp) {
 
     if (!aflcc->have_ubsan) { insert_param(aflcc, "-fsanitize=undefined"); }
 
-    //if (getenv("AFL_UBSAN_VERBOSE")) {
+    // if (getenv("AFL_UBSAN_VERBOSE")) {
+
     insert_param(aflcc, "-fno-sanitize-recover=undefined");
     //} else {
+
     //  insert_param(aflcc, "-fsanitize-trap=undefined");
     //}
 
@@ -2179,14 +2148,11 @@ void add_native_pcguard(aflcc_state_t *aflcc) {
   /* If llvm-config doesn't figure out LLVM_MAJOR, just
    go on anyway and let compiler complain if doesn't work. */
 
-#if LLVM_MAJOR > 0 && LLVM_MAJOR < 6
-  FATAL("pcguard instrumentation with pc-table requires LLVM 6.0.1+");
-#else
-  #if LLVM_MAJOR == 0
+#if LLVM_MAJOR == 0
   WARNF(
-      "pcguard instrumentation with pc-table requires LLVM 6.0.1+"
+      "pcguard instrumentation with pc-table requires LLVM 14 or newer"
       " otherwise the compiler will fail");
-  #endif
+#endif
 
   if (aflcc->instrument_opt_mode & INSTRUMENT_OPT_CODECOV) {
 
@@ -2198,8 +2164,6 @@ void add_native_pcguard(aflcc_state_t *aflcc) {
     insert_param(aflcc, "-fsanitize-coverage=trace-pc-guard,pc-table");
 
   }
-
-#endif
 
 }
 
@@ -2217,7 +2181,7 @@ void add_optimized_pcguard(aflcc_state_t *aflcc) {
 
   }
 
-#if LLVM_MAJOR >= 13
+#if LLVM_MAJOR
   #if defined __ANDROID__ || ANDROID
   insert_param(aflcc, "-fsanitize-coverage=trace-pc-guard");
   aflcc->instrument_mode = INSTRUMENT_LLVMNATIVE;
@@ -2237,7 +2201,6 @@ void add_optimized_pcguard(aflcc_state_t *aflcc) {
 
   } else {
 
-    /* Since LLVM_MAJOR >= 13 we use new pass manager */
     #if LLVM_MAJOR < 16
       #if LLVM_MAJOR < 15
     insert_param(aflcc, "-fno-legacy-pass-manager");
@@ -2250,21 +2213,8 @@ void add_optimized_pcguard(aflcc_state_t *aflcc) {
   }
 
   #endif  // defined __ANDROID__ || ANDROID
-#else     // LLVM_MAJOR < 13
-  #if LLVM_MAJOR >= 4
-
-  if (!be_quiet)
-    SAYF(
-        "Using unoptimized trace-pc-guard, upgrade to LLVM 13+ for "
-        "enhanced version.\n");
-  insert_param(aflcc, "-fsanitize-coverage=trace-pc-guard");
-  aflcc->instrument_mode = INSTRUMENT_LLVMNATIVE;
-
-  #else
-
-  FATAL("pcguard instrumentation requires LLVM 4.0.1+");
-
-  #endif
+#else     // no LLVM
+  FATAL("pcguard instrumentation requires LLVM 14 or newer");
 #endif
 
 }
@@ -2477,7 +2427,7 @@ void add_lto_linker(aflcc_state_t *aflcc) {
   }
 
   if (!ld_path) { PFATAL("Could not allocate mem for ld_path"); }
-#if defined(AFL_CLANG_LDPATH) && LLVM_MAJOR >= 12
+#if defined(AFL_CLANG_LDPATH)
   insert_param(aflcc, alloc_printf("--ld-path=%s", ld_path));
 #else
   insert_param(aflcc, alloc_printf("-fuse-ld=%s", ld_path));
@@ -2493,7 +2443,7 @@ void add_lto_passes(aflcc_state_t *aflcc) {
   // The NewPM implementation only works fully since LLVM 15.
   insert_object(aflcc, "SanitizerCoverageLTO.so", "-Wl,--load-pass-plugin=%s",
                 0);
-#elif defined(AFL_CLANG_LDPATH) && LLVM_MAJOR >= 13
+#elif defined(AFL_CLANG_LDPATH)
   insert_param(aflcc, "-Wl,--lto-legacy-pass-manager");
   insert_object(aflcc, "SanitizerCoverageLTO.so", "-Wl,-mllvm=-load=%s", 0);
 #else
@@ -2573,9 +2523,13 @@ void add_runtime(aflcc_state_t *aflcc) {
 
     }
 
-  #if __AFL_CODE_COVERAGE
-    // Required for dladdr used in afl-compiler-rt.o
-    insert_param(aflcc, "-ldl");
+  #if !defined(__APPLE__) && !defined(__sun)
+    // afl-compiler-rt.o always calls dlsym() (the __afl_bug ASAN coexistence
+    // probe) and, under code coverage, dladdr(). On glibc < 2.34 these live in
+    // a separate libdl, so we must link -ldl whenever the runtime object is
+    // linked in (on newer glibc/musl this is a harmless empty stub).
+    if (!aflcc->shared_linking && !aflcc->partial_linking)
+      insert_param(aflcc, "-ldl");
   #endif
 
   #if !defined(__APPLE__) && !defined(__sun)
@@ -3054,7 +3008,7 @@ static void maybe_usage(aflcc_state_t *aflcc, int argc, char **argv) {
         "  The best is LTO but it often needs RANLIB and AR settings outside "
         "of afl-cc.\n\n");
 
-#if LLVM_MAJOR >= 11 || (LLVM_MAJOR == 10 && LLVM_MINOR > 0)
+#if LLVM_MAJOR
   #define NATIVE_MSG                                                   \
     "  LLVM-NATIVE:  use llvm's native PCGUARD instrumentation (less " \
     "performant)\n"
@@ -3144,7 +3098,7 @@ static void maybe_usage(aflcc_state_t *aflcc, int argc, char **argv) {
             "  AFL_GCC_INSTRUMENT_FILE: enable selective instrumentation by "
             "filename\n");
 
-#if LLVM_MAJOR >= 9
+#if LLVM_MAJOR
   #define COUNTER_BEHAVIOUR \
     "  AFL_LLVM_SKIP_NEVERZERO: do not skip zero on trace counters\n"
 #else
@@ -3237,7 +3191,7 @@ static void maybe_usage(aflcc_state_t *aflcc, int argc, char **argv) {
         "consult the README.md, especially section 3.1 about instrumenting "
         "targets.\n\n");
 
-#if (LLVM_MAJOR >= 3)
+#if LLVM_MAJOR
     if (aflcc->have_lto)
       SAYF("afl-cc LTO with ld=%s %s\n", AFL_REAL_LD, AFL_CLANG_FLTO);
     if (aflcc->have_llvm)
@@ -3266,10 +3220,10 @@ static void maybe_usage(aflcc_state_t *aflcc, int argc, char **argv) {
         "AFL_LLVM_CMPLOG and "
         "AFL_LLVM_DICT2FILE+AFL_LLVM_DICT2FILE_NO_MAIN.\n\n");
 
-    if (LLVM_MAJOR < 13) {
+    if (LLVM_MAJOR < 14) {
 
       SAYF(
-          "Warning: It is highly recommended to use at least LLVM version 13 "
+          "Warning: It is highly recommended to use at least LLVM version 14 "
           "(or better, higher) rather than %d!\n\n",
           LLVM_MAJOR);
 
@@ -3676,6 +3630,10 @@ static void edit_params(aflcc_state_t *aflcc, u32 argc, char **argv,
 
     }
 
+    // C11
+
+    if (aflcc->c11_mode) { load_llvm_pass(aflcc, "afl-c11-pass.so"); }
+
     // laf
     if (getenv("LAF_SPLIT_SWITCHES") || getenv("AFL_LLVM_LAF_SPLIT_SWITCHES")) {
 
@@ -3708,11 +3666,6 @@ static void edit_params(aflcc_state_t *aflcc, u32 argc, char **argv,
       load_llvm_pass(aflcc, "split-switches-pass.so");
 
     }
-
-    // #if LLVM_MAJOR >= 13
-    //     // Use the old pass manager in LLVM 14 which the AFL++ passes still
-    //     use. insert_param(aflcc, "-flegacy-pass-manager");
-    // #endif
 
     if (aflcc->lto_mode) {
 
@@ -3758,7 +3711,12 @@ static void edit_params(aflcc_state_t *aflcc, u32 argc, char **argv,
     if (getenv("AFL_LLVM_BUG_ALLOCSIZE_DERIVE") &&
         (getenv("AFL_USE_ASAN") || aflcc->have_asan)) {
 
-      WARNF("AFL_LLVM_BUG_ALLOCSIZE_DERIVE is incompatible with ASAN, ignored");
+      if (!be_quiet) {
+
+        WARNF(
+            "AFL_LLVM_BUG_ALLOCSIZE_DERIVE is incompatible with ASAN, ignored");
+
+      }
 
     }
 
@@ -3773,10 +3731,15 @@ static void edit_params(aflcc_state_t *aflcc, u32 argc, char **argv,
        OOB oracle is enabled too. */
     if (getenv("AFL_LLVM_BUG_ALLOCSIZE_DERIVE") && !aflcc->cmplog_mode) {
 
-      WARNF(
-          "AFL_LLVM_BUG_ALLOCSIZE_DERIVE needs a CmpLog map at run time (a "
-          "CMPLOG build, afl-fuzz cmplog mode, or AFL_CMPLOG_DEBUG); without "
-          "one it is a no-op. Keeping DERIVE enabled.");
+      if (!be_quiet) {
+
+        WARNF(
+            "AFL_LLVM_BUG_ALLOCSIZE_DERIVE needs a CmpLog map at run time (a "
+            "CMPLOG build, afl-fuzz cmplog mode, or AFL_CMPLOG_DEBUG); without "
+            "one it is a no-op. Keeping DERIVE enabled.");
+
+      }
+
       setenv("AFL_LLVM_BUG_ALLOCSIZE", "1", 1);
 
     }

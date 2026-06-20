@@ -1318,15 +1318,16 @@ void show_stats_normal(afl_state_t *afl) {
 
   if (unlikely(!afl->skip_deterministic)) {
 
-    sprintf(tmp, "%s/%s, %s/%s, %s/%s, %s/%s",
-            u_stringify_int(IB(0), afl->stage_finds[STAGE_EXTRAS_UO]),
-            u_stringify_int(IB(1), afl->stage_cycles[STAGE_EXTRAS_UO]),
-            u_stringify_int(IB(2), afl->stage_finds[STAGE_EXTRAS_UI]),
-            u_stringify_int(IB(3), afl->stage_cycles[STAGE_EXTRAS_UI]),
-            u_stringify_int(IB(4), afl->stage_finds[STAGE_EXTRAS_AO]),
-            u_stringify_int(IB(5), afl->stage_cycles[STAGE_EXTRAS_AO]),
-            u_stringify_int(IB(6), afl->stage_finds[STAGE_EXTRAS_AI]),
-            u_stringify_int(IB(7), afl->stage_cycles[STAGE_EXTRAS_AI]));
+    sprintf(
+        tmp, "%s/%s, %s/%s, %s/%s, %s/%s",
+        u_stringify_int(IB(0), afl->stage_finds[STAGE_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(1), afl->stage_cycles[STAGE_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(2), afl->stage_finds[STAGE_EXTRA_INSERT]),
+        u_stringify_int(IB(3), afl->stage_cycles[STAGE_EXTRA_INSERT]),
+        u_stringify_int(IB(4), afl->stage_finds[STAGE_AUTO_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(5), afl->stage_cycles[STAGE_AUTO_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(6), afl->stage_finds[STAGE_AUTO_EXTRA_INSERT]),
+        u_stringify_int(IB(7), afl->stage_cycles[STAGE_AUTO_EXTRA_INSERT]));
 
   } else if (unlikely(!afl->extras_cnt || afl->custom_only)) {
 
@@ -1477,8 +1478,7 @@ void show_stats_normal(afl_state_t *afl) {
 
   if (afl->cpu_core_count) {
 
-    char *spacing = SP10, snap[24] = " " cLGN "snapshot" cRST " ";
-
+    char  *spacing = SP10;
     double cur_runnable = get_runnable_processes();
     u32    cur_utilization = cur_runnable * 100 / afl->cpu_core_count;
 
@@ -1495,8 +1495,6 @@ void show_stats_normal(afl_state_t *afl) {
     /* If we're clearly oversubscribed, use red. */
 
     if (!afl->no_cpu_meter_red && cur_utilization >= 150) { cpu_color = cLRD; }
-
-    if (afl->fsrv.snapshot) { spacing = snap; }
 
 #ifdef HAVE_AFFINITY
 
@@ -2157,15 +2155,16 @@ void show_stats_pizza(afl_state_t *afl) {
 
   if (unlikely(!afl->skip_deterministic)) {
 
-    sprintf(tmp, "%s/%s, %s/%s, %s/%s, %s/%s",
-            u_stringify_int(IB(0), afl->stage_finds[STAGE_EXTRAS_UO]),
-            u_stringify_int(IB(1), afl->stage_cycles[STAGE_EXTRAS_UO]),
-            u_stringify_int(IB(2), afl->stage_finds[STAGE_EXTRAS_UI]),
-            u_stringify_int(IB(3), afl->stage_cycles[STAGE_EXTRAS_UI]),
-            u_stringify_int(IB(4), afl->stage_finds[STAGE_EXTRAS_AO]),
-            u_stringify_int(IB(5), afl->stage_cycles[STAGE_EXTRAS_AO]),
-            u_stringify_int(IB(6), afl->stage_finds[STAGE_EXTRAS_AI]),
-            u_stringify_int(IB(7), afl->stage_cycles[STAGE_EXTRAS_AI]));
+    sprintf(
+        tmp, "%s/%s, %s/%s, %s/%s, %s/%s",
+        u_stringify_int(IB(0), afl->stage_finds[STAGE_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(1), afl->stage_cycles[STAGE_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(2), afl->stage_finds[STAGE_EXTRA_INSERT]),
+        u_stringify_int(IB(3), afl->stage_cycles[STAGE_EXTRA_INSERT]),
+        u_stringify_int(IB(4), afl->stage_finds[STAGE_AUTO_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(5), afl->stage_cycles[STAGE_AUTO_EXTRA_OVERWRITE]),
+        u_stringify_int(IB(6), afl->stage_finds[STAGE_AUTO_EXTRA_INSERT]),
+        u_stringify_int(IB(7), afl->stage_cycles[STAGE_AUTO_EXTRA_INSERT]));
 
   } else if (unlikely(!afl->extras_cnt || afl->custom_only)) {
 
@@ -2319,8 +2318,7 @@ void show_stats_pizza(afl_state_t *afl) {
 
   if (afl->cpu_core_count) {
 
-    char *spacing = SP10, snap[80] = " " cLGN "Pizzaioli's busyness " cRST " ";
-
+    char  *spacing = SP10;
     double cur_runnable = get_runnable_processes();
     u32    cur_utilization = cur_runnable * 100 / afl->cpu_core_count;
 
@@ -2337,8 +2335,6 @@ void show_stats_pizza(afl_state_t *afl) {
     /* If we're clearly oversubscribed, use red. */
 
     if (!afl->no_cpu_meter_red && cur_utilization >= 150) { cpu_color = cLRD; }
-
-    if (afl->fsrv.snapshot) { spacing = snap; }
 
 #ifdef HAVE_AFFINITY
 

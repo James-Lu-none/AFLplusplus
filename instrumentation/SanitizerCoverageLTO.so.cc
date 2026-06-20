@@ -417,9 +417,6 @@ llvmGetPassPluginInfo() {
           /* lambda to insert our pass into the pass pipeline. */
           [](PassBuilder &PB) {
 
-#if LLVM_VERSION_MAJOR <= 13
-            using OptimizationLevel = typename PassBuilder::OptimizationLevel;
-#endif
 #if LLVM_VERSION_MAJOR >= 15
             PB.registerFullLinkTimeOptimizationLastEPCallback(
 #else
@@ -777,8 +774,11 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
 
   if (!map_addr) {
 
-    AFLMapPtr = new GlobalVariable(
-        M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
+    // may already exist: the C11 pass creates it earlier at PipelineStartEP
+    AFLMapPtr = M.getGlobalVariable("__afl_area_ptr");
+    if (!AFLMapPtr)
+      AFLMapPtr = new GlobalVariable(
+          M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
 
   } else {
 
@@ -1626,6 +1626,8 @@ static bool shouldInstrumentBlock(const Function &F, const BasicBlock *BB,
   // (catchswitch blocks).
   if (BB->getFirstInsertionPt() == BB->end()) return false;
 
+  if (&F.getEntryBlock() != BB && isFullyArtificialBlock(BB)) return false;
+
   // AFL++ START
   if (!Options.NoPrune && &F.getEntryBlock() == BB && F.size() > 1)
     return false;
@@ -1938,7 +1940,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
             } else
 
-#if LLVM_VERSION_MAJOR >= 14
                 if (t->getTypeID() == llvm::Type::FixedVectorTyID) {
 
               FixedVectorType *tt = dyn_cast<FixedVectorType>(t);
@@ -1958,7 +1959,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
             } else
 
-#endif
             {
 
               continue;
@@ -2059,11 +2059,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
             BasicBlock::iterator IP = BB.getFirstInsertionPt();
             IRBuilder<>          IRB(&(*IP));
 
-            PrevCtxLoad = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-                IRB.getInt32Ty(),
-#endif
-                AFLContext);
+            PrevCtxLoad = IRB.CreateLoad(IRB.getInt32Ty(), AFLContext);
             PrevCtxLoad->setMetadata("nosanitize", N);
 
             CTX_offset = IRB.CreateMul(
@@ -2128,11 +2124,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
   auto applyCtxOffset = [&](IRBuilder<> &IRB, Value *V) -> Value * {
 
     if (!CTX_add) return V;
-    LoadInst *CTX_load = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-        IRB.getInt32Ty(),
-#endif
-        CTX_add);
+    LoadInst *CTX_load = IRB.CreateLoad(IRB.getInt32Ty(), CTX_add);
     setNoSanitizeMetadata(CTX_load);
     return IRB.CreateAdd(V, CTX_load);
 
@@ -2194,12 +2186,9 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       if (use_threadsafe_counters) {
 
-        auto result =
-            IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                                llvm::MaybeAlign(1),
-#endif
-                                llvm::AtomicOrdering::Monotonic);
+        auto result = IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add,
+                                          MapPtrIdx, One, llvm::MaybeAlign(1),
+                                          llvm::AtomicOrdering::Monotonic);
 
         markAflSkip(result);
 
@@ -2357,7 +2346,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         } else
 
-#if LLVM_VERSION_MAJOR >= 14
             if (t->getTypeID() == llvm::Type::FixedVectorTyID) {
 
           FixedVectorType *tt = dyn_cast<FixedVectorType>(t);
@@ -2421,7 +2409,6 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         } else
 
-#endif
         {
 
           ++unhandled;
@@ -2604,17 +2591,10 @@ GlobalVariable *ModuleSanitizerCoverageLTO::CreateFunctionLocalArrayInSection(
       *CurModule, ArrayTy, false, GlobalVariable::PrivateLinkage,
       Constant::getNullValue(ArrayTy), "__sancov_gen_");
 
-#if LLVM_VERSION_MAJOR >= 13
   if (TargetTriple.supportsCOMDAT() &&
       (TargetTriple.isOSBinFormatELF() || !F.isInterposable()))
     if (auto Comdat = getOrCreateFunctionComdat(F, TargetTriple))
       Array->setComdat(Comdat);
-#else
-  if (TargetTriple.supportsCOMDAT() && !F.isInterposable())
-    if (auto Comdat =
-            GetOrCreateFunctionComdat(F, TargetTriple, CurModuleUniqueId))
-      Array->setComdat(Comdat);
-#endif
   Array->setSection(getSectionName(Section));
   Array->setAlignment(Align(DL->getTypeStoreSize(Ty).getFixedValue()));
   GlobalsToAppendToUsed.push_back(Array);
@@ -2753,11 +2733,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
-#if LLVM_VERSION_MAJOR >= 12
         ->setCannotMerge();  // gets the PC using GET_CALLER_PC.
-#else
-        ->cannotMerge();  // gets the PC using GET_CALLER_PC.
-#endif
 
   }
 
@@ -2782,11 +2758,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
 
     if (CTX_add) {
 
-      LoadInst *CTX_load = IRB.CreateLoad(
-#if LLVM_VERSION_MAJOR >= 14
-          IRB.getInt32Ty(),
-#endif
-          CTX_add);
+      LoadInst *CTX_load = IRB.CreateLoad(IRB.getInt32Ty(), CTX_add);
       setNoSanitizeMetadata(CTX_load);
       val = IRB.CreateAdd(CurLoc, CTX_load);
 
@@ -2823,10 +2795,7 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
     if (use_threadsafe_counters) {                                /* Atomic */
 
       IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                          llvm::MaybeAlign(1),
-#endif
-                          llvm::AtomicOrdering::Monotonic);
+                          llvm::MaybeAlign(1), llvm::AtomicOrdering::Monotonic);
 
     } else {
 
@@ -3050,10 +3019,7 @@ uint64_t ModuleSanitizerCoverageLTO::instrumentPathCoverage(
     if (use_threadsafe_counters) {
 
       IRB.CreateAtomicRMW(llvm::AtomicRMWInst::BinOp::Add, MapPtrIdx, One,
-#if LLVM_VERSION_MAJOR >= 13
-                          llvm::MaybeAlign(1),
-#endif
-                          llvm::AtomicOrdering::Monotonic);
+                          llvm::MaybeAlign(1), llvm::AtomicOrdering::Monotonic);
 
     } else {
 
@@ -3118,9 +3084,7 @@ static RegisterStandardPasses RegisterCompTransPass(
 static RegisterStandardPasses RegisterCompTransPass0(
     PassManagerBuilder::EP_EnabledOnOptLevel0, registerLTOPass);
 
-  #if LLVM_VERSION_MAJOR >= 11
 static RegisterStandardPasses RegisterCompTransPassLTO(
     PassManagerBuilder::EP_FullLinkTimeOptimizationLast, registerLTOPass);
-  #endif
 #endif
 

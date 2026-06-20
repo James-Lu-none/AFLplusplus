@@ -35,7 +35,7 @@ static void afl_import_first(afl_state_t *afl) {
 
 }
 
-static void afl_advance_queue_cycle(afl_state_t *afl) {
+static inline void afl_advance_queue_cycle(afl_state_t *afl) {
 
   bool all_handled = false;
   if (!afl->no_dfg_schedule) {
@@ -76,6 +76,12 @@ static void afl_advance_queue_cycle(afl_state_t *afl) {
 
   afl->runs_in_current_cycle = (u32)-1;
   afl->cur_skipped_items = 0;
+
+  if (unlikely(afl->schedule >= FAST && afl->schedule < RARE)) {
+
+    afl->reinit_table = 1;  // periodically reinit table because of nfuzz
+
+  }
 
   // 1st april fool joke - enable pizza mode
   // to not waste time on checking the date we only do this when the
@@ -256,7 +262,7 @@ static void afl_advance_queue_cycle(afl_state_t *afl) {
 
 }
 
-static void afl_fuzz_queue(afl_state_t *afl) {
+static inline void afl_fuzz_queue(afl_state_t *afl) {
 
   do {
 
@@ -414,7 +420,7 @@ static void afl_fuzz_queue(afl_state_t *afl) {
 
 }
 
-static void afl_maybe_switch_mode(afl_state_t *afl) {
+static inline void afl_maybe_switch_mode(afl_state_t *afl) {
 
   u64 cur_time = get_cur_time();
   if (likely(afl->switch_fuzz_mode && afl->fuzz_mode == 0 &&
@@ -438,7 +444,7 @@ static void afl_maybe_switch_mode(afl_state_t *afl) {
 
 }
 
-static void afl_maybe_sync(afl_state_t *afl) {
+static inline void afl_maybe_sync(afl_state_t *afl) {
 
   if (likely(!afl->stop_soon && afl->sync_id)) {
 
