@@ -24,6 +24,8 @@
 // to prevent the function from being removed
 unsigned char __afl_lto_mode = 0;
 
+#ifdef cd
+#ifdef cd_report
 static unsigned long long __afl_dgf_start_time = 0;
 
 #define MAX_DGF_BLOCKS 1048576
@@ -44,15 +46,19 @@ static void get_dgf_filepath(const char *filename, char *out_path, size_t max_le
     snprintf(out_path, max_len, "%s", filename);
   }
 }
+#endif
 
 void __afl_dgf_target_hit(void);
 void __afl_dgf_block_hit(unsigned int type, unsigned int id);
+#endif
 
 __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
 
   if (getenv("AFL_DEBUG")) fprintf(stderr, "[__afl_auto_init_globals]\n");
   __afl_lto_mode = 1;
 
+#ifdef cd
+#ifdef cd_report
   __afl_dgf_start_time = get_current_time_ms();
 
   // Create/open shared memory backing file and map it
@@ -92,10 +98,14 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
   void (*volatile dummy2)(unsigned int, unsigned int) = __afl_dgf_block_hit;
   (void)dummy1;
   (void)dummy2;
+#endif
+#endif
 
 }
 
+#ifdef cd
 __attribute__((used)) void __afl_dgf_target_hit(void) {
+#ifdef cd_report
   // Check if target reached file already exists to avoid redundant writes
   char reached_path[512];
   get_dgf_filepath("dgf_target_reached.txt", reached_path, sizeof(reached_path));
@@ -140,9 +150,11 @@ __attribute__((used)) void __afl_dgf_target_hit(void) {
   fprintf(stderr, "[DGF] Start Time: %s\n", start_time_str);
   fprintf(stderr, "[DGF] Hit Time:   %s\n", hit_time_str);
   fprintf(stderr, "[DGF] Elapsed:    %.3f seconds\n", (double)elapsed_ms / 1000.0);
+#endif
 }
 
 __attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int id) {
+#ifdef cd_report
   if (id >= MAX_DGF_BLOCKS) return;
   if (__afl_dgf_blocks_hit[id]) return;
 
@@ -173,4 +185,6 @@ __attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int i
       __afl_dgf_blocks_hit[id] = 1;
     }
   }
+#endif
 }
+#endif

@@ -731,6 +731,7 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
   q->handicap = handicap;
   q->cal_failed = 0;
 
+#ifdef cd
   q->dgf_has_target = 0;
   q->dgf_has_control = 0;
   q->dgf_has_caller = 0;
@@ -748,6 +749,7 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
       }
     }
   }
+#endif
 
   afl->total_bitmap_size += q->bitmap_size;
   ++afl->total_bitmap_entries;

@@ -39,6 +39,7 @@ char *power_names[POWER_SCHEDULES_NUM] = {"explore", "mmopt", "exploit",
 
 static list_t afl_states = {.element_prealloc_count = 0};
 
+#ifdef cd
 static void read_dgf_bitmap_indices(afl_state_t *afl) {
   char *filename = getenv("AFL_DGF_BITMAP_INDICES_FILE");
   if (!filename) filename = "dgf_bitmap_indices.txt";
@@ -60,6 +61,7 @@ static void read_dgf_bitmap_indices(afl_state_t *afl) {
   }
   fclose(f);
 }
+#endif
 
 /* Initializes an afl_state_t. */
 
@@ -113,8 +115,10 @@ void afl_state_init(afl_state_t *afl, uint32_t map_size) {
   afl->clean_trace_custom = ck_alloc(map_size);
   afl->first_trace = ck_alloc(map_size);
   afl->map_tmp_buf = ck_alloc(map_size);
+#ifdef cd
   afl->dgf_block_types = ck_alloc(map_size);
   read_dgf_bitmap_indices(afl);
+#endif
 
   /* Initialize IJON max tracking state */
   afl->ijon_state = NULL;
@@ -172,7 +176,9 @@ void afl_resize_map_buffers(afl_state_t *afl, u32 old_size, u32 new_size) {
   afl->clean_trace_custom = ck_realloc(afl->clean_trace_custom, new_size);
   afl->first_trace = ck_realloc(afl->first_trace, new_size);
   afl->map_tmp_buf = ck_realloc(afl->map_tmp_buf, new_size);
+#ifdef cd
   afl->dgf_block_types = ck_realloc(afl->dgf_block_types, new_size);
+#endif
 
   if (old_size < new_size) {
 
@@ -191,7 +197,9 @@ void afl_resize_map_buffers(afl_state_t *afl, u32 old_size, u32 new_size) {
     memset(afl->clean_trace_custom + old_size, 0, size_diff);
     memset(afl->first_trace + old_size, 0, size_diff);
     memset(afl->map_tmp_buf + old_size, 0, size_diff);
+#ifdef cd
     memset(afl->dgf_block_types + old_size, 0, size_diff);
+#endif
 
   }
 

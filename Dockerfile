@@ -83,6 +83,9 @@ COPY . .
 ARG CC=gcc-$GCC_VERSION
 ARG CXX=g++-$GCC_VERSION
 
+# Extra compilation flags (e.g. -Dcd -Dcd_report)
+ARG CPPFLAGS="-Dcd"
+
 # Used in CI to prevent a 'make clean' which would remove the binaries to be tested
 ARG TEST_BUILD
 
@@ -90,8 +93,8 @@ RUN python3 -m venv .venv
 ENV PATH="/AFLplusplus/.venv/bin:$PATH"
 
 RUN sed -i.bak 's/^	-/	/g' GNUmakefile && \
-    make clean && make distrib && \
-    ([ "${TEST_BUILD}" ] || (make install)) && \
+    make clean && make distrib CPPFLAGS="${CPPFLAGS}" && \
+    ([ "${TEST_BUILD}" ] || (make install CPPFLAGS="${CPPFLAGS}")) && \
     mv GNUmakefile.bak GNUmakefile
 
 RUN echo "set encoding=utf-8" > /root/.vimrc && \

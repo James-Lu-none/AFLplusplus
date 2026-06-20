@@ -1618,6 +1618,7 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
 
   }
 
+#ifdef cd
   if (afl->dgf_block_types && !getenv("AFL_DGF_CONTROL_GROUP")) {
     if (q->dgf_has_target) {
       perf_score *= 5.0;
@@ -1631,6 +1632,7 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
       perf_score *= caller_factor;
     }
   }
+#endif
 
   return perf_score;
 

@@ -324,9 +324,11 @@ struct queue_entry {
                       /*   1: explored                    */
   fs_meta_t *fs_meta;                   /* Frameshift metadata              */
 
+#ifdef cd
   u8 dgf_has_target;
   u8 dgf_has_control;
   u8 dgf_has_caller;
+#endif
 
   /* Cycle at which tightness_novel was set, so cull_queue can decay the
      flag instead of letting the favoured set grow monotonically. */
@@ -1004,7 +1006,9 @@ typedef struct afl_state {
   dynamic_shared_access_t
       *ijon_shared_access;         /* IJON shared access for dynamic offset */
 
+#ifdef cd
   u8             *dgf_block_types;     /* DGF block types: 0=none, 1=Target, 2=Control, 3=Caller */
+#endif
 
   /* --- moved out of the original main() during the afl-main.c refactor --- */
   u32    runs_in_current_cycle;

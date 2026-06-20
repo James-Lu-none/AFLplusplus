@@ -288,7 +288,7 @@ class ModuleSanitizerCoverageLTO
   std::ofstream                    dFile;
   size_t                           found = 0;
   bool                             deny_exec = false;
-  // DGF START
+#ifdef cd
   bool                             dgf_enabled = false;
   BasicBlock                      *dgf_TargetBB = nullptr;
   std::set<BasicBlock *>           dgf_ControlBBs;
@@ -298,7 +298,7 @@ class ModuleSanitizerCoverageLTO
   uint32_t                         dgf_total_pruned_blocks = 0;
   std::map<BasicBlock *, uint32_t> dgf_BlockIDs;
   std::map<BasicBlock *, std::string> dgf_BlockTypes;
-  // DGF END
+#endif
   // AFL++ END
 
 };
@@ -419,6 +419,7 @@ PreservedAnalyses ModuleSanitizerCoverageLTO::run(Module                &M,
 
 }
 
+#ifdef cd
 static bool matchDebugLoc(const BasicBlock &BB, const std::string &TargetFile, unsigned TargetLine) {
   for (const Instruction &I : BB) {
     if (const DILocation *Loc = I.getDebugLoc()) {
@@ -445,12 +446,14 @@ static bool matchFuncLoc(const BasicBlock &BB, const std::string &TargetFunc, un
   }
   return false;
 }
+#endif
 
 bool ModuleSanitizerCoverageLTO::instrumentModule(
     Module &M, DomTreeCallback DTCallback, PostDomTreeCallback PDTCallback) {
 
   if (Options.CoverageType == SanitizerCoverageOptions::SCK_None) return false;
 
+#ifdef cd
   dgf_enabled = false;
   dgf_TargetBB = nullptr;
   dgf_ControlBBs.clear();
@@ -637,6 +640,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       FATAL("DGF: TargetBB not found.");
     }
   }
+#endif
   /*
     if (Allowlist &&
         !Allowlist->inSection("coverage", "src", MNAME))
@@ -1741,6 +1745,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   if (TargetTriple.isOSBinFormatMachO()) appendToUsed(M, GlobalsToAppendToUsed);
   appendToCompilerUsed(M, GlobalsToAppendToCompilerUsed);
 
+#ifdef cd
   if (dgf_enabled) {
     char *info_file_name = getenv("AFL_DGF_INFO_FILE");
     std::string info_path;
@@ -1848,6 +1853,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       fclose(f_info);
     }
   }
+#endif
 
   return true;
 
@@ -2546,11 +2552,13 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
       }
 
+#ifdef cd
       if (dgf_enabled && !getenv("AFL_DGF_CONTROL_GROUP")) {
         // Heavy instrumentation only on TargetBB and ControlBBs. Navigation blocks (CallerBBs) get no comparison/select instrumentation feedback.
         bool is_heavy = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0);
         if (!is_heavy) continue;
       }
+#endif
 
       if (!isAflCovInterestingInstruction(IN)) continue;
 
@@ -2787,6 +2795,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
     }
 
+#ifdef cd
     bool is_dgf_block = (dgf_enabled && (dgf_BlockIDs.count(&BB) > 0 || &BB == dgf_TargetBB));
 
     if (is_dgf_block || (dgf_enabled && shouldInstrumentBlock(F, &BB, DT, PDT, Options))) {
@@ -2822,6 +2831,11 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
           BlocksToInstrument.push_back(&BB);
     }
+#else
+    if (!instrument_ctx || call_counter <= 1)
+      if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+        BlocksToInstrument.push_back(&BB);
+#endif
   }
 
   /* PATH analysis must run BEFORE InjectCoverage so that the guard-only
@@ -2830,9 +2844,11 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
   if (path_mode) { analyzePathCoverage(F); }
 
   InjectCoverage(F, BlocksToInstrument, IsLeafFunc);
+#ifdef cd
   for (auto *BB : BlocksToInstrument) {
     dgf_EdgeInstrumentedBBs.push_back(BB);
   }
+#endif
   // InjectCoverageForIndirectCalls(F, IndirCalls);
 
   /*if (debug)
@@ -3004,6 +3020,8 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
     IRB.SetCurrentDebugLocation(EntryDebugLoc);
   }
 
+#ifdef cd
+#ifdef cd_report
   if (dgf_enabled && &BB == dgf_TargetBB) {
     FunctionCallee TargetHitFn = CurModule->getOrInsertFunction("__afl_dgf_target_hit", Type::getVoidTy(*C));
     CallInst *CI = IRB.CreateCall(TargetHitFn);
@@ -3020,6 +3038,8 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
       CI->setDebugLoc(IRB.getCurrentDebugLocation());
     }
   }
+#endif
+#endif
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
