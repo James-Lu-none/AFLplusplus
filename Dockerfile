@@ -79,38 +79,38 @@ RUN git clone --depth=1 https://github.com/AFLplusplus/cov-analysis && \
 WORKDIR /AFLplusplus
 COPY . .
 
-# --- DAFLplusplus Additional Setup ---
-# Install Z3, tmux, and other packages needed for SVF and fuzzing
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libz3-dev z3 tmux libfreetype6 libfreetype6-dev unzip lsb-release software-properties-common
+# # --- DAFLplusplus Additional Setup ---
+# # Install Z3, tmux, and other packages needed for SVF and fuzzing
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     libz3-dev z3 tmux libfreetype6 libfreetype6-dev unzip lsb-release software-properties-common
 
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 21 all && \
-    rm llvm.sh
+# RUN wget https://apt.llvm.org/llvm.sh && \
+#     chmod +x llvm.sh && \
+#     ./llvm.sh 21 all && \
+#     rm llvm.sh
 
-RUN apt-get install -y --no-install-recommends llvm-21-dev libllvm21 clang-21
+# RUN apt-get install -y --no-install-recommends llvm-21-dev libllvm21 clang-21
 
-# Download and install pre-built official SVF-3.3
-RUN wget -q https://github.com/SVF-tools/SVF/releases/download/SVF-3.3/SVF-3.3-ubuntu-24.04-x86_64.zip && \
-    unzip -q SVF-3.3-ubuntu-24.04-x86_64.zip && \
-    mv SVF-linux-x86_64 /opt/svf && \
-    rm -rf SVF-3.3-ubuntu-24.04-x86_64.zip __MACOSX
+# # Download and install pre-built official SVF-3.3
+# RUN wget -q https://github.com/SVF-tools/SVF/releases/download/SVF-3.3/SVF-3.3-ubuntu-24.04-x86_64.zip && \
+#     unzip -q SVF-3.3-ubuntu-24.04-x86_64.zip && \
+#     mv SVF-linux-x86_64 /opt/svf && \
+#     rm -rf SVF-3.3-ubuntu-24.04-x86_64.zip __MACOSX
 
-ENV SVF_DIR=/opt/svf
-ENV PATH="$SVF_DIR/bin:$PATH"
-ENV LD_LIBRARY_PATH="$SVF_DIR/lib:$LD_LIBRARY_PATH"
+# ENV SVF_DIR=/opt/svf
+# ENV PATH="$SVF_DIR/bin:$PATH"
+# ENV LD_LIBRARY_PATH="$SVF_DIR/lib:$LD_LIBRARY_PATH"
 
-# Copy and compile the C++ slicer
-COPY dafl_svf_slicer.cpp /tmp/dafl_svf_slicer.cpp
-RUN clang++ -O3 -std=c++17 /tmp/dafl_svf_slicer.cpp \
-    -I/opt/svf/include \
-    -L/opt/svf/lib -lSvfLLVM -lSvfCore \
-    -Wl,-rpath,/opt/svf/lib \
-    $(llvm-config-21 --cxxflags --ldflags --libs) \
-    -lz3 -lrt -ldl -lm -pthread -fexceptions \
-    -o /usr/local/bin/dafl_svf_slicer && \
-    rm /tmp/dafl_svf_slicer.cpp
+# # Copy and compile the C++ slicer
+# COPY dafl_svf_slicer.cpp /tmp/dafl_svf_slicer.cpp
+# RUN clang++ -O3 -std=c++17 /tmp/dafl_svf_slicer.cpp \
+#     -I/opt/svf/include \
+#     -L/opt/svf/lib -lSvfLLVM -lSvfCore \
+#     -Wl,-rpath,/opt/svf/lib \
+#     $(llvm-config-21 --cxxflags --ldflags --libs) \
+#     -lz3 -lrt -ldl -lm -pthread -fexceptions \
+#     -o /usr/local/bin/dafl_svf_slicer && \
+#     rm /tmp/dafl_svf_slicer.cpp
 
 ARG CC=gcc-$GCC_VERSION
 ARG CXX=g++-$GCC_VERSION
@@ -131,22 +131,22 @@ RUN echo "set encoding=utf-8" > /root/.vimrc && \
     echo 'alias joe="joe --wordwrap --joe_state -nobackup"' >> ~/.bashrc && \
     echo "export PS1='"'[AFL++ \h] \w \$ '"'" >> ~/.bashrc
 
-# Copy the python wrapper
-COPY dafl_svf_slicer.py /usr/local/bin/dafl_svf_slicer.py
-RUN chmod +x /usr/local/bin/dafl_svf_slicer.py
+# # Copy the python wrapper
+# COPY dafl_svf_slicer.py /usr/local/bin/dafl_svf_slicer.py
+# RUN chmod +x /usr/local/bin/dafl_svf_slicer.py
 
-# 🌟 --- [新增區塊] GLLVM 安裝與設定 ---
-# 下載 Go 官方二進位檔，編譯安裝 gllvm 後卸載 Go 以瘦身鏡像
-RUN wget -q https://go.dev/dl/go1.22.2.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.22.2.linux-amd64.tar.gz && \
-    rm go1.22.2.linux-amd64.tar.gz
+# # 🌟 --- [新增區塊] GLLVM 安裝與設定 ---
+# # 下載 Go 官方二進位檔，編譯安裝 gllvm 後卸載 Go 以瘦身鏡像
+# RUN wget -q https://go.dev/dl/go1.22.2.linux-amd64.tar.gz && \
+#     tar -C /usr/local -xzf go1.22.2.linux-amd64.tar.gz && \
+#     rm go1.22.2.linux-amd64.tar.gz
 
-ENV PATH=$PATH:/usr/local/go/bin:/root/go/bin
+# ENV PATH=$PATH:/usr/local/go/bin:/root/go/bin
 
-RUN go install github.com/SRI-CSL/gllvm/cmd/...@latest && \
-    rm -rf /usr/local/go
+# RUN go install github.com/SRI-CSL/gllvm/cmd/...@latest && \
+#     rm -rf /usr/local/go
 
-# 這裡先建立一些 gllvm 執行時常用的環境變數預設值（後續進 Container 也能自己蓋掉）
-ENV WLLVM_OUTPUT_LEVEL=WARNING
+# # 這裡先建立一些 gllvm 執行時常用的環境變數預設值（後續進 Container 也能自己蓋掉）
+# ENV WLLVM_OUTPUT_LEVEL=WARNING
 
 RUN rm -rf /var/lib/apt/lists/*
