@@ -2810,21 +2810,22 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
           break;
         }
       }
-      // if (func_contains_dgf || (F.getName() == "main" && &BB == &F.getEntryBlock()) {
-      //     BlocksToInstrument.push_back(&BB);
-      // } else {
-      //   if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
-      //     dgf_total_pruned_blocks++;
-      //     dgf_PrunedBBs.push_back(&BB);
-      //   }
-      // }
 
-      // !! still keep all bb
-      BlocksToInstrument.push_back(&BB);
-      if (!func_contains_dgf && !(F.getName() == "main" && &BB == &F.getEntryBlock()) && !is_dgf_block) {
-        // still record "should prune" basic blocks
-        dgf_total_pruned_blocks++;
-        dgf_PrunedBBs.push_back(&BB);
+      // Coarse-grained pruning:
+      // If the function contains DGF blocks or is the 'main' function, instrument fully.
+      if (func_contains_dgf || F.getName() == "main") {
+        BlocksToInstrument.push_back(&BB);
+      } else {
+        // If the function is unrelated, instrument ONLY the Entry Block to avoid early fuzzer exit.
+        if (&BB == &F.getEntryBlock()) {
+          BlocksToInstrument.push_back(&BB);
+        } else {
+          // Other blocks are pruned.
+          if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
+            dgf_total_pruned_blocks++;
+            dgf_PrunedBBs.push_back(&BB);
+          }
+        }
       }
     } else {
       if (!instrument_ctx || call_counter <= 1)
