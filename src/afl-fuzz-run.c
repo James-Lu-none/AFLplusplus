@@ -1157,7 +1157,7 @@ void sync_fuzzers(afl_state_t *afl) {
           u64 min_threshold = 0;
           if (afl->shm.dfg_map) {
             min_threshold = 1;
-            double ratio = 0.8;
+            double ratio = 1;
             char *ratio_env = getenv("AFL_SYNC_PROX_RATIO");
             if (ratio_env) {
               ratio = atof(ratio_env);
