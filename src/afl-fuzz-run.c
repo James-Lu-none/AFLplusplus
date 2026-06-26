@@ -1154,6 +1154,39 @@ void sync_fuzzers(afl_state_t *afl) {
 
           }
 
+          u64 min_threshold = 0;
+          if (afl->shm.dfg_map) {
+            min_threshold = 1;
+            double ratio = 0.8;
+            char *ratio_env = getenv("AFL_SYNC_PROX_RATIO");
+            if (ratio_env) {
+              ratio = atof(ratio_env);
+            }
+            if (afl->avg_prox_score > 0) {
+              u64 dynamic_threshold = (u64)(afl->avg_prox_score * ratio);
+              if (dynamic_threshold > min_threshold) {
+                min_threshold = dynamic_threshold;
+              }
+            }
+          }
+          char *min_env = getenv("AFL_SYNC_PROX_MIN");
+          if (min_env) {
+            min_threshold = strtoull(min_env, NULL, 10);
+          }
+
+          if (min_threshold > 0) {
+            u64 synced_prox_score = compute_proximity_score(afl);
+            if (synced_prox_score < min_threshold) {
+              if (unlikely(afl->debug)) {
+                DEBUGF("Skipping synced seed %s with low proximity score: %llu < %llu\n",
+                       namelist[o]->d_name, synced_prox_score, min_threshold);
+              }
+              munmap(orig_mem, st.st_size);
+              close(fd);
+              continue;
+            }
+          }
+
           afl->syncing_party = sd_ent->d_name;
           afl->queued_imported += save_if_interesting(afl, mem, new_len, fault);
           show_stats(afl);
