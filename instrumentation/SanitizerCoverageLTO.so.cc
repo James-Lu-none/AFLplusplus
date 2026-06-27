@@ -3021,7 +3021,6 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
     IRB.SetCurrentDebugLocation(EntryDebugLoc);
   }
 
-#ifdef cd
 #ifdef cd_report
   if (dgf_enabled && &BB == dgf_TargetBB) {
     FunctionCallee TargetHitFn = CurModule->getOrInsertFunction("__afl_dgf_target_hit", Type::getVoidTy(*C));
@@ -3030,6 +3029,9 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
       CI->setDebugLoc(IRB.getCurrentDebugLocation());
     }
   }
+#endif
+
+#ifdef cd
   if (dgf_enabled && dgf_BlockIDs.count(&BB) > 0) {
     uint32_t id = dgf_BlockIDs[&BB];
     FunctionCallee HitTimeRecordFn = CurModule->getOrInsertFunction("__afl_hit_time_record", Type::getVoidTy(*C), Type::getInt32Ty(*C));
