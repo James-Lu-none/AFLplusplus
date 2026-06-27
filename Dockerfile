@@ -83,8 +83,8 @@ COPY . .
 ARG CC=gcc-$GCC_VERSION
 ARG CXX=g++-$GCC_VERSION
 
-# Extra compilation flags (e.g. -Dcd -Dcd_report)
-ARG CPPFLAGS="-Dcd"
+# Extra compilation flags (e.g. -Dcd_report)
+# ARG CPPFLAGS="-Dcd_report"
 
 # Used in CI to prevent a 'make clean' which would remove the binaries to be tested
 ARG TEST_BUILD
