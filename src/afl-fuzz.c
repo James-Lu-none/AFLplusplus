@@ -2693,6 +2693,19 @@ void afl_alloc_shared_memory(afl_state_t *afl) {
       afl_shm_init(&afl->shm, afl->fsrv.map_size, afl->non_instrumented_mode,
                    afl->perm, afl->chown_needed ? afl->fsrv.gid : -1);
 
+#ifdef cd
+  afl->hit_time_map = (u32 *)afl_shm_init(
+      &afl->shm_hit_time, (afl->fsrv.map_size + 1) * sizeof(u32),
+      afl->non_instrumented_mode, afl->perm,
+      afl->chown_needed ? afl->fsrv.gid : -1);
+  if (afl->hit_time_map) {
+    memset(afl->hit_time_map, 0, (afl->fsrv.map_size + 1) * sizeof(u32));
+    u8 *shm_str = alloc_printf("%d", afl->shm_hit_time.shm_id);
+    setenv("__AFL_HIT_TIME_SHM_ID", (char *)shm_str, 1);
+    ck_free(shm_str);
+  }
+#endif
+
   #ifdef __AFL_CODE_COVERAGE
   // Initialize pcmap and modmap before any forkserver starts
   if (getenv("AFL_DUMP_PC_MAP")) {
@@ -3633,6 +3646,9 @@ void stop_fuzzing(afl_state_t *afl) {
   destroy_extras(afl);
   destroy_custom_mutators(afl);
   afl_shm_deinit(&afl->shm);
+#ifdef cd
+  if (afl->hit_time_map) { afl_shm_deinit(&afl->shm_hit_time); }
+#endif
 
   if (afl->shm_fuzz) {
 

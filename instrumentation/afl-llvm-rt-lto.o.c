@@ -25,6 +25,8 @@
 unsigned char __afl_lto_mode = 0;
 
 #ifdef cd
+#include <sys/shm.h>
+unsigned int *__afl_hit_time_ptr = NULL;
 #ifdef cd_report
 static unsigned long long __afl_dgf_start_time = 0;
 
@@ -58,6 +60,12 @@ __attribute__((constructor(0))) void __afl_auto_init_globals(void) {
   __afl_lto_mode = 1;
 
 #ifdef cd
+  char *hit_time_shm_str = getenv("__AFL_HIT_TIME_SHM_ID");
+  if (hit_time_shm_str) {
+    int shm_id = atoi(hit_time_shm_str);
+    __afl_hit_time_ptr = (unsigned int *)shmat(shm_id, NULL, 0);
+    if (__afl_hit_time_ptr == (void *)-1) { __afl_hit_time_ptr = NULL; }
+  }
 #ifdef cd_report
   __afl_dgf_start_time = get_current_time_ms();
 
@@ -151,6 +159,14 @@ __attribute__((used)) void __afl_dgf_target_hit(void) {
   fprintf(stderr, "[DGF] Hit Time:   %s\n", hit_time_str);
   fprintf(stderr, "[DGF] Elapsed:    %.3f seconds\n", (double)elapsed_ms / 1000.0);
 #endif
+}
+
+__attribute__((used)) void __afl_hit_time_record(unsigned int id) {
+  if (__afl_hit_time_ptr) {
+    if (__builtin_expect(__afl_hit_time_ptr[id + 1] == 0, 0)) {
+      __afl_hit_time_ptr[id + 1] = ++__afl_hit_time_ptr[0];
+    }
+  }
 }
 
 __attribute__((used)) void __afl_dgf_block_hit(unsigned int type, unsigned int id) {

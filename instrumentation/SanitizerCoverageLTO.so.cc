@@ -3032,14 +3032,20 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
   if (dgf_enabled && dgf_BlockIDs.count(&BB) > 0) {
     uint32_t id = dgf_BlockIDs[&BB];
+    FunctionCallee HitTimeRecordFn = CurModule->getOrInsertFunction("__afl_hit_time_record", Type::getVoidTy(*C), Type::getInt32Ty(*C));
+    CallInst *CI_ht = IRB.CreateCall(HitTimeRecordFn, {ConstantInt::get(Type::getInt32Ty(*C), id)});
+    if (F.getSubprogram()) {
+      CI_ht->setDebugLoc(IRB.getCurrentDebugLocation());
+    }
+#ifdef cd_report
     uint32_t type = (dgf_BlockTypes[&BB] == "Control") ? 0 : 1;
     FunctionCallee BlockHitFn = CurModule->getOrInsertFunction("__afl_dgf_block_hit", Type::getVoidTy(*C), Type::getInt32Ty(*C), Type::getInt32Ty(*C));
     CallInst *CI = IRB.CreateCall(BlockHitFn, {ConstantInt::get(Type::getInt32Ty(*C), type), ConstantInt::get(Type::getInt32Ty(*C), id)});
     if (F.getSubprogram()) {
       CI->setDebugLoc(IRB.getCurrentDebugLocation());
     }
-  }
 #endif
+  }
 #endif
   if (Options.TracePC) {
 

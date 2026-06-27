@@ -760,6 +760,134 @@ static u8 check_if_text(afl_state_t *afl, struct queue_entry *q) {
 
 }
 
+#ifdef cd
+#define MAX_ARM_BLOCKS 4096
+static u8 arm_prereq_matrix[MAX_ARM_BLOCKS][MAX_ARM_BLOCKS];
+static u8 has_prereqs[MAX_ARM_BLOCKS];
+static u32 arm_count_i[MAX_ARM_BLOCKS];
+static u32 arm_count_j_before_i[MAX_ARM_BLOCKS][MAX_ARM_BLOCKS];
+
+static void dump_arm_rules(afl_state_t *afl) {
+  char *info_dir = getenv("AFL_DGF_INFO_DIR");
+  char path[512];
+  if (info_dir && info_dir[0] != '\0') {
+    snprintf(path, sizeof(path), "%s/arm_rules.txt", info_dir);
+  } else if (afl && afl->out_dir) {
+    snprintf(path, sizeof(path), "%s/arm_rules.txt", afl->out_dir);
+  } else {
+    snprintf(path, sizeof(path), "arm_rules.txt");
+  }
+  
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  
+  fprintf(f, "=== Dynamic ARM Prerequisite Rules (j -> i: j must execute before i) ===\n");
+  u32 i, j, count = 0;
+  for (i = 0; i < MAX_ARM_BLOCKS; ++i) {
+    for (j = 0; j < MAX_ARM_BLOCKS; ++j) {
+      if (arm_prereq_matrix[i][j]) {
+        fprintf(f, "Rule #%u: Block %u -> Block %u (Support: %u seeds, Confidence: 100%%)\n",
+                ++count, j, i, arm_count_i[i]);
+      }
+    }
+  }
+  if (count == 0) {
+    fprintf(f, "<No prerequisite rules discovered yet>\n");
+  }
+  fclose(f);
+}
+
+static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
+  if (!q || !q->hit_history || q->hit_history_len == 0) return;
+  
+  u32 a, b;
+  for (a = 0; a < q->hit_history_len; ++a) {
+    u32 blk_i = q->hit_history[a].id;
+    u32 time_i = q->hit_history[a].time;
+    if (blk_i >= MAX_ARM_BLOCKS) continue;
+    
+    arm_count_i[blk_i]++;
+    
+    for (b = 0; b < q->hit_history_len; ++b) {
+      u32 blk_j = q->hit_history[b].id;
+      u32 time_j = q->hit_history[b].time;
+      if (blk_j >= MAX_ARM_BLOCKS || blk_i == blk_j) continue;
+      
+      if (time_j < time_i) {
+        arm_count_j_before_i[blk_i][blk_j]++;
+      }
+    }
+  }
+  
+  for (a = 0; a < q->hit_history_len; ++a) {
+    u32 blk_i = q->hit_history[a].id;
+    if (blk_i >= MAX_ARM_BLOCKS) continue;
+    u32 total_i = arm_count_i[blk_i];
+    
+    u8 any_p = 0;
+    u32 blk_j;
+    for (blk_j = 0; blk_j < MAX_ARM_BLOCKS; ++blk_j) {
+      if (blk_i == blk_j) continue;
+      if (total_i >= 2 && arm_count_j_before_i[blk_i][blk_j] == total_i) {
+        any_p = 1;
+        if (arm_prereq_matrix[blk_i][blk_j] == 0) {
+          arm_prereq_matrix[blk_i][blk_j] = 1;
+          fprintf(stderr, "\n[DGF-ARM] New Prerequisite Rule Discovered: Block %u -> Block %u (Support: %u seeds)\n", blk_j, blk_i, total_i);
+          dump_arm_rules(afl);
+        }
+      } else {
+        if (arm_prereq_matrix[blk_i][blk_j] == 1) {
+          arm_prereq_matrix[blk_i][blk_j] = 0;
+          dump_arm_rules(afl);
+        }
+      }
+    }
+    has_prereqs[blk_i] = any_p;
+  }
+}
+
+static u32 evaluate_seed_arm_score(afl_state_t *afl, struct queue_entry *q) {
+  if (!q->hit_history || q->hit_history_len == 0) return 0;
+  
+  u32 valid_prereq_depth = 0;
+  u32 k;
+  for (k = 0; k < q->hit_history_len; ++k) {
+    u32 blk_i = q->hit_history[k].id;
+    u32 time_i = q->hit_history[k].time;
+    
+    if (blk_i >= MAX_ARM_BLOCKS) continue;
+    
+    if (!has_prereqs[blk_i]) {
+      valid_prereq_depth++;
+      continue;
+    }
+    
+    bool all_prereqs_met = true;
+    u32 j;
+    for (j = 0; j < MAX_ARM_BLOCKS; ++j) {
+      if (arm_prereq_matrix[blk_i][j]) {
+        bool met = false;
+        u32 m;
+        for (m = 0; m < q->hit_history_len; ++m) {
+          if (q->hit_history[m].id == j && q->hit_history[m].time < time_i) {
+            met = true;
+            break;
+          }
+        }
+        if (!met) {
+          all_prereqs_met = false;
+          break;
+        }
+      }
+    }
+    if (all_prereqs_met) {
+      valid_prereq_depth++;
+    }
+  }
+  return valid_prereq_depth;
+}
+#endif
+
 /* Append new test case to the queue. */
 
 void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
@@ -812,6 +940,30 @@ void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
     afl->c11 = 0;
 
   }
+
+#ifdef cd
+  if (afl->hit_time_map) {
+    u32 i, count = 0;
+    for (i = 0; i < afl->fsrv.map_size; ++i) {
+      if (afl->hit_time_map[i + 1] > 0) {
+        count++;
+      }
+    }
+    if (count > 0) {
+      q->hit_history = (struct hit_entry *)ck_alloc(count * sizeof(struct hit_entry));
+      q->hit_history_len = count;
+      u32 idx = 0;
+      for (i = 0; i < afl->fsrv.map_size; ++i) {
+        if (afl->hit_time_map[i + 1] > 0) {
+          q->hit_history[idx].id = i;
+          q->hit_history[idx].time = afl->hit_time_map[i + 1];
+          idx++;
+        }
+      }
+      update_arm_incremental(afl, q);
+    }
+  }
+#endif
 
   if (likely(q->len > 3)) {
 
@@ -887,6 +1039,9 @@ void destroy_queue(afl_state_t *afl) {
     ck_free(q->testcase_buf);
     ck_free(q->fname);
     ck_free(q->trace_mini);
+#ifdef cd
+    if (q->hit_history) { ck_free(q->hit_history); }
+#endif
     if (q->skipdet_e) {
 
       if (q->skipdet_e->done_inf_map) ck_free(q->skipdet_e->done_inf_map);
@@ -1333,6 +1488,44 @@ void update_bitmap_rescore(afl_state_t *afl, struct queue_entry *q, u32 index) {
 
 }
 
+#ifdef cd
+static u32 evaluate_seed_arm_score(afl_state_t *afl, struct queue_entry *q) {
+  if (!q->hit_history || q->hit_history_len == 0) return 0;
+  
+  u32 valid_prereq_depth = 0;
+  u32 k;
+  for (k = 0; k < q->hit_history_len; ++k) {
+    u32 blk_i = q->hit_history[k].id;
+    u32 time_i = q->hit_history[k].time;
+    
+    if (blk_i >= MAX_ARM_BLOCKS) continue;
+    
+    bool all_prereqs_met = true;
+    u32 j;
+    for (j = 0; j < MAX_ARM_BLOCKS; ++j) {
+      if (arm_prereq_matrix[blk_i][j]) {
+        bool met = false;
+        u32 m;
+        for (m = 0; m < q->hit_history_len; ++m) {
+          if (q->hit_history[m].id == j && q->hit_history[m].time < time_i) {
+            met = true;
+            break;
+          }
+        }
+        if (!met) {
+          all_prereqs_met = false;
+          break;
+        }
+      }
+    }
+    if (all_prereqs_met) {
+      valid_prereq_depth++;
+    }
+  }
+  return valid_prereq_depth;
+}
+#endif
+
 /* Calculate case desirability score to adjust the length of havoc fuzzing.
    A helper function for fuzz_one(). Maybe some of these constants should
    go into config.h. */
@@ -1622,15 +1815,23 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
   if (afl->dgf_block_types && !getenv("AFL_DGF_CONTROL_GROUP")) {
     if (q->dgf_has_target) {
       perf_score *= 5.0;
-    } else if (q->dgf_has_control) {
+    } else if (q->hit_history && q->hit_history_len > 0) {
+      u32 arm_depth = evaluate_seed_arm_score(afl, q);
       char *boost_env = getenv("AFL_DGF_PRIORITY_BOOST");
-      double boost_factor = boost_env ? atof(boost_env) : 3.0;
-      perf_score *= boost_factor;
-    } else if (q->dgf_has_caller) {
-      char *caller_env = getenv("AFL_DGF_CALLER_BOOST");
-      double caller_factor = caller_env ? atof(caller_env) : 1.5;
-      perf_score *= caller_factor;
-    }
+      double base_boost = boost_env ? atof(boost_env) : 2.0;
+      double seq_boost = base_boost + (double)arm_depth * 0.5;
+      perf_score *= seq_boost;
+    } 
+    // // temporary comment out the old simple boost since it might produce noise
+    // else if (q->dgf_has_control) {
+    //   char *boost_env = getenv("AFL_DGF_PRIORITY_BOOST");
+    //   double boost_factor = boost_env ? atof(boost_env) : 3.0;
+    //   perf_score *= boost_factor;
+    // } else if (q->dgf_has_caller) {
+    //   char *caller_env = getenv("AFL_DGF_CALLER_BOOST");
+    //   double caller_factor = caller_env ? atof(caller_env) : 1.5;
+    //   perf_score *= caller_factor;
+    // }
   }
 #endif
 

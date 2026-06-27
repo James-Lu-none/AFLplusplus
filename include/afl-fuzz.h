@@ -263,6 +263,13 @@ struct skipdet_global {
 
 };
 
+struct hit_entry {
+
+  u32 id;                               /* Bitmap index or control block ID */
+  u32 time;                             /* Logical timestamp (global_timer) */
+
+};
+
 struct queue_entry {
 
   u8 *fname;                            /* File name for the test case      */
@@ -328,6 +335,8 @@ struct queue_entry {
   u8 dgf_has_target;
   u8 dgf_has_control;
   u8 dgf_has_caller;
+  struct hit_entry *hit_history;
+  u32               hit_history_len;
 #endif
 
   /* Cycle at which tightness_novel was set, so cull_queue can decay the
@@ -631,6 +640,10 @@ typedef struct afl_state {
 #ifdef __AFL_CODE_COVERAGE
   sharedmem_t shm_pcmap;                         /* Shared memory for pcmap */
   sharedmem_t shm_modmap;                       /* Shared memory for modmap */
+#endif
+#ifdef cd
+  sharedmem_t shm_hit_time;                      /* Shared memory for hit_time */
+  u32        *hit_time_map;
 #endif
 
   char **argv;                                            /* argv if needed */

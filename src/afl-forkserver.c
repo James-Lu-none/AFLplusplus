@@ -2704,6 +2704,12 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
 #else
     /* Clear shared memory for clean execution */
     memset(fsrv->trace_bits, 0, fsrv->map_size);
+#ifdef cd
+    afl_state_t *afl_p = (afl_state_t *)fsrv->afl_ptr;
+    if (afl_p && afl_p->hit_time_map) {
+      memset(afl_p->hit_time_map, 0, (fsrv->map_size + 1) * sizeof(u32));
+    }
+#endif
     MEM_BARRIER();
 #endif
 
