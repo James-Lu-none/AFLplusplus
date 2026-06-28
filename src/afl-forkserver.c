@@ -2707,7 +2707,7 @@ fsrv_run_result_t __attribute__((hot)) afl_fsrv_run_target(
 #ifdef cd
     afl_state_t *afl_p = (afl_state_t *)fsrv->afl_ptr;
     if (afl_p && afl_p->hit_time_map) {
-      memset(afl_p->hit_time_map, 0, (fsrv->map_size + 1) * sizeof(u32));
+      memset(afl_p->hit_time_map, 0, (MAX_ARM_BLOCKS + 1) * sizeof(u32));
     }
 #endif
     MEM_BARRIER();
