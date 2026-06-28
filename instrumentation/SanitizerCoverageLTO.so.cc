@@ -1760,7 +1760,13 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       }
     }
     FILE *f_info = fopen(info_path.c_str(), "w");
+
     if (f_info) {
+#ifdef cd_report
+      fprintf(f_info, "WARNING: cd_report is enabled. pls disable it when doing TTE tests.\n");
+#else
+      fprintf(f_info, "INFO: cd_report is disabled.\n");
+#endif
       fprintf(f_info, "=== DGF Compilation Summary ===\n");
       if (dgf_TargetBB) {
         std::string loc = "";
@@ -2553,7 +2559,7 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
       }
 
 #ifdef cd
-      if (dgf_enabled && !getenv("AFL_DGF_CONTROL_GROUP")) {
+      if (dgf_enabled) {
         // Heavy instrumentation only on TargetBB and ControlBBs. Navigation blocks (CallerBBs) get no comparison/select instrumentation feedback.
         bool is_heavy = (dgf_TargetBB == &BB || dgf_ControlBBs.count(&BB) > 0);
         if (!is_heavy) continue;

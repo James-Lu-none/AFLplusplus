@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include "config.h"
 
 // to prevent the function from being removed
 unsigned char __afl_lto_mode = 0;

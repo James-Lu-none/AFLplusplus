@@ -610,6 +610,7 @@ We add 4 byte for one u32 length field. */
 #define AFL_TXT_STRING_MAX_MUTATIONS 6
 
 #define cd
+#define AFL_DGF_PRIORITY_BOOST 2.0
 
 #endif                                                  /* ! _HAVE_CONFIG_H */
 

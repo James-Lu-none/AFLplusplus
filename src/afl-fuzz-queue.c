@@ -847,6 +847,7 @@ static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
 }
 
 static u32 evaluate_seed_arm_score(afl_state_t *afl, struct queue_entry *q) {
+  (void)afl;
   if (!q->hit_history || q->hit_history_len == 0) return 0;
   
   u32 valid_prereq_depth = 0;
@@ -1488,44 +1489,6 @@ void update_bitmap_rescore(afl_state_t *afl, struct queue_entry *q, u32 index) {
 
 }
 
-#ifdef cd
-static u32 evaluate_seed_arm_score(afl_state_t *afl, struct queue_entry *q) {
-  if (!q->hit_history || q->hit_history_len == 0) return 0;
-  
-  u32 valid_prereq_depth = 0;
-  u32 k;
-  for (k = 0; k < q->hit_history_len; ++k) {
-    u32 blk_i = q->hit_history[k].id;
-    u32 time_i = q->hit_history[k].time;
-    
-    if (blk_i >= MAX_ARM_BLOCKS) continue;
-    
-    bool all_prereqs_met = true;
-    u32 j;
-    for (j = 0; j < MAX_ARM_BLOCKS; ++j) {
-      if (arm_prereq_matrix[blk_i][j]) {
-        bool met = false;
-        u32 m;
-        for (m = 0; m < q->hit_history_len; ++m) {
-          if (q->hit_history[m].id == j && q->hit_history[m].time < time_i) {
-            met = true;
-            break;
-          }
-        }
-        if (!met) {
-          all_prereqs_met = false;
-          break;
-        }
-      }
-    }
-    if (all_prereqs_met) {
-      valid_prereq_depth++;
-    }
-  }
-  return valid_prereq_depth;
-}
-#endif
-
 /* Calculate case desirability score to adjust the length of havoc fuzzing.
    A helper function for fuzz_one(). Maybe some of these constants should
    go into config.h. */
@@ -1812,16 +1775,14 @@ u32 calculate_score(afl_state_t *afl, struct queue_entry *q) {
   }
 
 #ifdef cd
-  if (afl->dgf_block_types && !getenv("AFL_DGF_CONTROL_GROUP")) {
+  if (afl->dgf_block_types) {
     if (q->dgf_has_target) {
       perf_score *= 5.0;
     } else if (q->hit_history && q->hit_history_len > 0) {
       u32 arm_depth = evaluate_seed_arm_score(afl, q);
-      char *boost_env = getenv("AFL_DGF_PRIORITY_BOOST");
-      double base_boost = boost_env ? atof(boost_env) : 2.0;
-      double seq_boost = base_boost + (double)arm_depth * 0.5;
+      double seq_boost = AFL_DGF_PRIORITY_BOOST + (double)arm_depth * 0.5;
       perf_score *= seq_boost;
-    } 
+    }
     // // temporary comment out the old simple boost since it might produce noise
     // else if (q->dgf_has_control) {
     //   char *boost_env = getenv("AFL_DGF_PRIORITY_BOOST");
