@@ -2694,15 +2694,19 @@ void afl_alloc_shared_memory(afl_state_t *afl) {
                    afl->perm, afl->chown_needed ? afl->fsrv.gid : -1);
 
 #ifdef cd
-  afl->hit_time_map = (u32 *)afl_shm_init(
-      &afl->shm_hit_time, (afl->fsrv.map_size + 1) * sizeof(u32),
-      afl->non_instrumented_mode, afl->perm,
-      afl->chown_needed ? afl->fsrv.gid : -1);
-  if (afl->hit_time_map) {
-    memset(afl->hit_time_map, 0, (afl->fsrv.map_size + 1) * sizeof(u32));
-    u8 *shm_str = alloc_printf("%d", afl->shm_hit_time.shm_id);
-    setenv("__AFL_HIT_TIME_SHM_ID", (char *)shm_str, 1);
-    ck_free(shm_str);
+  afl->shm_hit_time.map_size = (MAX_ARM_BLOCKS + 1) * sizeof(u32);
+  afl->shm_hit_time.shm_id = shmget(IPC_PRIVATE, afl->shm_hit_time.map_size, IPC_CREAT | IPC_EXCL | afl->perm);
+  if (afl->shm_hit_time.shm_id >= 0) {
+    afl->hit_time_map = (u32 *)shmat(afl->shm_hit_time.shm_id, NULL, 0);
+    if (afl->hit_time_map == (void *)-1 || !afl->hit_time_map) {
+      shmctl(afl->shm_hit_time.shm_id, IPC_RMID, NULL);
+      afl->hit_time_map = NULL;
+    } else {
+      memset(afl->hit_time_map, 0, afl->shm_hit_time.map_size);
+      u8 *shm_str = alloc_printf("%d", afl->shm_hit_time.shm_id);
+      setenv("__AFL_HIT_TIME_SHM_ID", (char *)shm_str, 1);
+      ck_free(shm_str);
+    }
   }
 #endif
 
@@ -3647,7 +3651,11 @@ void stop_fuzzing(afl_state_t *afl) {
   destroy_custom_mutators(afl);
   afl_shm_deinit(&afl->shm);
 #ifdef cd
-  if (afl->hit_time_map) { afl_shm_deinit(&afl->shm_hit_time); }
+  if (afl->hit_time_map) {
+    shmdt(afl->hit_time_map);
+    shmctl(afl->shm_hit_time.shm_id, IPC_RMID, NULL);
+    afl->hit_time_map = NULL;
+  }
 #endif
 
   if (afl->shm_fuzz) {

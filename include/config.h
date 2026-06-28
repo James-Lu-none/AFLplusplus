@@ -611,6 +611,7 @@ We add 4 byte for one u32 length field. */
 
 #define cd
 #define AFL_DGF_PRIORITY_BOOST 2.0
+#define MAX_ARM_BLOCKS 4096
 
 #endif                                                  /* ! _HAVE_CONFIG_H */
 
