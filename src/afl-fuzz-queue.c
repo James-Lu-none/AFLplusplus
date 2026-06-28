@@ -761,7 +761,6 @@ static u8 check_if_text(afl_state_t *afl, struct queue_entry *q) {
 }
 
 #ifdef cd
-#define MAX_ARM_BLOCKS 4096
 static u8 arm_prereq_matrix[MAX_ARM_BLOCKS][MAX_ARM_BLOCKS];
 static u8 has_prereqs[MAX_ARM_BLOCKS];
 static u32 arm_count_i[MAX_ARM_BLOCKS];
