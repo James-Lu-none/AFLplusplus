@@ -779,24 +779,26 @@ void dump_arm_rules(afl_state_t *afl) {
   }
   
   FILE *f = fopen(path, "w");
-  if (!f) return;
+  FILE *f_ws = fopen("/workspace/arm_rules.txt", "w");
+  if (!f && !f_ws) return;
   
-  fprintf(f, "=== Dynamic ARM Prerequisite Rules (j -> i: j must execute before i) ===\n");
-  u32 i, j, count = 0;
+  u32 i, j;
   u32 limit = max_arm_block_id + 1;
   if (limit > MAX_ARM_BLOCKS) limit = MAX_ARM_BLOCKS;
+
+  if (f) fprintf(f, "src_block,dst_block,support,confidence\n");
+  if (f_ws) fprintf(f_ws, "src_block,dst_block,support,confidence\n");
+
   for (i = 0; i < limit; ++i) {
     for (j = 0; j < limit; ++j) {
       if (arm_prereq_matrix[i][j]) {
-        fprintf(f, "Rule #%u: Block %u -> Block %u (Support: %u seeds, Confidence: 100%%)\n",
-                ++count, j, i, arm_count_i[i]);
+        if (f) fprintf(f, "%u,%u,%u,1.0\n", j, i, arm_count_i[i]);
+        if (f_ws) fprintf(f_ws, "%u,%u,%u,1.0\n", j, i, arm_count_i[i]);
       }
     }
   }
-  if (count == 0) {
-    fprintf(f, "<No prerequisite rules discovered yet>\n");
-  }
-  fclose(f);
+  if (f) fclose(f);
+  if (f_ws) fclose(f_ws);
 }
 
 static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
