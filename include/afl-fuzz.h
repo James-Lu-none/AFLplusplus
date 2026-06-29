@@ -1370,6 +1370,9 @@ void cull_queue(afl_state_t *);
 u32  calculate_score(afl_state_t *, struct queue_entry *);
 void recalculate_all_scores(afl_state_t *);
 void update_bitmap_rescore(afl_state_t *, struct queue_entry *, u32);
+#ifdef cd
+void dump_arm_rules(afl_state_t *);
+#endif
 
 /* Bitmap */
 

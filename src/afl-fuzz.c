@@ -3408,6 +3408,9 @@ void stop_fuzzing(afl_state_t *afl) {
   show_stats(afl);           // print the screen one last time
   write_bitmap(afl);
   save_auto(afl);
+#ifdef cd
+  dump_arm_rules(afl);
+#endif
 
   #ifdef __AFL_CODE_COVERAGE
   if (afl->fsrv.persistent_trace_bits) {

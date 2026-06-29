@@ -765,8 +765,9 @@ static u8 arm_prereq_matrix[MAX_ARM_BLOCKS][MAX_ARM_BLOCKS];
 static u8 has_prereqs[MAX_ARM_BLOCKS];
 static u32 arm_count_i[MAX_ARM_BLOCKS];
 static u32 arm_count_j_before_i[MAX_ARM_BLOCKS][MAX_ARM_BLOCKS];
+static u32 max_arm_block_id = 0;
 
-static void dump_arm_rules(afl_state_t *afl) {
+void dump_arm_rules(afl_state_t *afl) {
   char *info_dir = getenv("AFL_DGF_INFO_DIR");
   char path[512];
   if (info_dir && info_dir[0] != '\0') {
@@ -782,8 +783,10 @@ static void dump_arm_rules(afl_state_t *afl) {
   
   fprintf(f, "=== Dynamic ARM Prerequisite Rules (j -> i: j must execute before i) ===\n");
   u32 i, j, count = 0;
-  for (i = 0; i < MAX_ARM_BLOCKS; ++i) {
-    for (j = 0; j < MAX_ARM_BLOCKS; ++j) {
+  u32 limit = max_arm_block_id + 1;
+  if (limit > MAX_ARM_BLOCKS) limit = MAX_ARM_BLOCKS;
+  for (i = 0; i < limit; ++i) {
+    for (j = 0; j < limit; ++j) {
       if (arm_prereq_matrix[i][j]) {
         fprintf(f, "Rule #%u: Block %u -> Block %u (Support: %u seeds, Confidence: 100%%)\n",
                 ++count, j, i, arm_count_i[i]);
@@ -797,6 +800,7 @@ static void dump_arm_rules(afl_state_t *afl) {
 }
 
 static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
+  (void)afl;
   if (!q || !q->hit_history || q->hit_history_len == 0) return;
   
   u32 a, b;
@@ -804,6 +808,7 @@ static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
     u32 blk_i = q->hit_history[a].id;
     u32 time_i = q->hit_history[a].time;
     if (blk_i >= MAX_ARM_BLOCKS) continue;
+    if (blk_i > max_arm_block_id) max_arm_block_id = blk_i;
     
     arm_count_i[blk_i]++;
     
@@ -811,6 +816,7 @@ static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
       u32 blk_j = q->hit_history[b].id;
       u32 time_j = q->hit_history[b].time;
       if (blk_j >= MAX_ARM_BLOCKS || blk_i == blk_j) continue;
+      if (blk_j > max_arm_block_id) max_arm_block_id = blk_j;
       
       if (time_j < time_i) {
         arm_count_j_before_i[blk_i][blk_j]++;
@@ -818,6 +824,9 @@ static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
     }
   }
   
+  u32 limit = max_arm_block_id + 1;
+  if (limit > MAX_ARM_BLOCKS) limit = MAX_ARM_BLOCKS;
+
   for (a = 0; a < q->hit_history_len; ++a) {
     u32 blk_i = q->hit_history[a].id;
     if (blk_i >= MAX_ARM_BLOCKS) continue;
@@ -825,20 +834,13 @@ static void update_arm_incremental(afl_state_t *afl, struct queue_entry *q) {
     
     u8 any_p = 0;
     u32 blk_j;
-    for (blk_j = 0; blk_j < MAX_ARM_BLOCKS; ++blk_j) {
+    for (blk_j = 0; blk_j < limit; ++blk_j) {
       if (blk_i == blk_j) continue;
       if (total_i >= 2 && arm_count_j_before_i[blk_i][blk_j] == total_i) {
         any_p = 1;
-        if (arm_prereq_matrix[blk_i][blk_j] == 0) {
-          arm_prereq_matrix[blk_i][blk_j] = 1;
-          fprintf(stderr, "\n[DGF-ARM] New Prerequisite Rule Discovered: Block %u -> Block %u (Support: %u seeds)\n", blk_j, blk_i, total_i);
-          dump_arm_rules(afl);
-        }
+        arm_prereq_matrix[blk_i][blk_j] = 1;
       } else {
-        if (arm_prereq_matrix[blk_i][blk_j] == 1) {
-          arm_prereq_matrix[blk_i][blk_j] = 0;
-          dump_arm_rules(afl);
-        }
+        arm_prereq_matrix[blk_i][blk_j] = 0;
       }
     }
     has_prereqs[blk_i] = any_p;
