@@ -2241,8 +2241,31 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
 
         }
 
+#ifdef cd
+        bool is_dgf_block = (dgf_enabled && (dgf_BlockIDs.count(&BB) > 0 || &BB == dgf_TargetBB));
+        if (is_dgf_block || (dgf_enabled && shouldInstrumentBlock(F, &BB, DT, PDT, Options))) {
+          bool func_contains_dgf = false;
+          for (auto &bb : F) {
+            if (&bb == dgf_TargetBB || dgf_ControlBBs.count(&bb) > 0 || dgf_CallerBBs.count(&bb) > 0) {
+              func_contains_dgf = true;
+              break;
+            }
+          }
+          if (func_contains_dgf || F.getName() == "main") {
+            BlocksToInstrument.push_back(&BB);
+          } else {
+            if (&BB == &F.getEntryBlock()) {
+              BlocksToInstrument.push_back(&BB);
+            }
+          }
+        } else {
+          if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
+            BlocksToInstrument.push_back(&BB);
+        }
+#else
         if (shouldInstrumentBlock(F, &BB, DT, PDT, Options))
           BlocksToInstrument.push_back(&BB);
+#endif
 
       }
 
@@ -2820,11 +2843,13 @@ void ModuleSanitizerCoverageLTO::instrumentFunction(
       // Coarse-grained pruning:
       // If the function contains DGF blocks or is the 'main' function, instrument fully.
       if (func_contains_dgf || F.getName() == "main") {
-        BlocksToInstrument.push_back(&BB);
+        if (!instrument_ctx || call_counter <= 1)
+          BlocksToInstrument.push_back(&BB);
       } else {
         // If the function is unrelated, instrument ONLY the Entry Block to avoid early fuzzer exit.
         if (&BB == &F.getEntryBlock()) {
-          BlocksToInstrument.push_back(&BB);
+          if (!instrument_ctx || call_counter <= 1)
+            BlocksToInstrument.push_back(&BB);
         } else {
           // Other blocks are pruned.
           if (shouldInstrumentBlock(F, &BB, DT, PDT, Options)) {
