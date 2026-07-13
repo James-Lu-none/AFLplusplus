@@ -28,9 +28,65 @@
 #include <limits.h>
 #include "cmplog.h"
 #include "afl-mutations.h"
+#include <math.h>
+
+const double temperature = 1.0;
+const u8 mydebug = 0;
+const u32 mut_max = 32;
+
+int sample_from_distribution(afl_state_t *afl, int row) {
+    int i = rand() % mut_max;
+    if (rand() / (double) RAND_MAX < afl->prob_table_mut[row][i])
+        return i;
+    else
+        return afl->alias_table_mut[row][i];
+}
+
+// Function to select the number of stacked mutators based on the epsilon-greedy strategy
+u32 select_stack(afl_state_t *afl) {
+  u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
+
+  if ((double) rand() / RAND_MAX < afl->stack_epsilon) {
+      // Exploration: select a random stack
+      return (u32) rand() % (num_of_available_stacks-2) + 2; // starting from 2 stacks
+  } else {
+
+      // Exploitation: select the stack with the highest number of finds
+      return afl->stack_with_most_finds;
+  }
+}
+
+
+// Function to print a 2D array of doubles
+void print_u32_array(u32 **array, u32 size) {
+    printf("[");
+    for (u32 i = 0; i < size; ++i) {
+        printf("[");
+        for (u32 j = 0; j < size; ++j) {
+            printf("%d", array[i][j]);
+            if (j < size - 1) {
+                printf(", ");
+            }
+        }
+        if (i<size-1) printf("],\n");
+        else printf("]\n");
+    }
+    printf("]\n");
+}
+
+void print_u32_array_1d(u32 *array, u32 size) {
+  printf("[");
+  for (u32 j = 0; j < size; ++j) {
+      printf("%d", array[j]);
+      if (j < size - 1) {
+          printf(", ");
+      }
+  }
+  printf("]\n");
+}
+
 
 /* MOpt */
-
 static int select_algorithm(afl_state_t *afl, u32 max_algorithm) {
 
   int i_puppet, j_puppet = 0, operator_number = max_algorithm;
@@ -325,7 +381,8 @@ static void locate_diffs(u8 *ptr1, u8 *ptr2, u32 len, s32 *first, s32 *last) {
    skipped or bailed out. */
 
 u8 fuzz_one_original(afl_state_t *afl) {
-
+  double random_double = (double)rand() / RAND_MAX;
+  double random_threshold = 0.0001;
   u32 len, temp_len;
   u32 j;
   u32 i;
@@ -596,12 +653,15 @@ u8 fuzz_one_original(afl_state_t *afl) {
 
   }
 
+  // printf("Skipping Deterministic stage for debugging only\n");
+  // goto custom_mutator_stage; // KK
+
   doing_det = 1;
 
   /*********************************************
    * SIMPLE BITFLIP (+dictionary construction) *
    *********************************************/
-
+// Flip the bit in position _b of the array _ar
 #define FLIP_BIT(_ar, _b)                     \
   do {                                        \
                                               \
@@ -614,12 +674,12 @@ u8 fuzz_one_original(afl_state_t *afl) {
   /* Single walking bit. */
 
   afl->stage_short = "flip1";
-  afl->stage_max = len << 3;
+  afl->stage_max = len << 3; // multiply by 2^3=8. The maximum number of iterations for this stage is 8 times the length of the input
   afl->stage_name = "bitflip 1/1";
 
   afl->stage_val_type = STAGE_VAL_NONE;
 
-  orig_hit_cnt = afl->queued_items + afl->saved_crashes;
+  orig_hit_cnt = afl->queued_items + afl->saved_crashes; // used to track new seeds or new crashes
 
   /* Get a clean cksum. */
 
@@ -638,16 +698,16 @@ u8 fuzz_one_original(afl_state_t *afl) {
 
     if (is_det_timeout(before_det_time, 0)) { goto custom_mutator_stage; }
 
-    FLIP_BIT(out_buf, afl->stage_cur);
+    FLIP_BIT(out_buf, afl->stage_cur); // flip the bit
 
 #ifdef INTROSPECTION
     snprintf(afl->mutation, sizeof(afl->mutation), "%s FLIP_BIT1-%u",
              afl->queue_cur->fname, afl->stage_cur);
 #endif
 
-    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; }
+    if (common_fuzz_stuff(afl, out_buf, len)) { goto abandon_entry; } // fuzz the mutated seed
 
-    FLIP_BIT(out_buf, afl->stage_cur);
+    FLIP_BIT(out_buf, afl->stage_cur); // flip the bit back again to its original value
 
     /* While flipping the least significant bit in every byte, pull of an extra
        trick to detect possible syntax tokens. In essence, the idea is that if
@@ -677,7 +737,7 @@ u8 fuzz_one_original(afl_state_t *afl) {
       */
 
     if (!afl->non_instrumented_mode && (afl->stage_cur & 7) == 7) {
-
+      // calculate the new checksum, of the mutated input
       u64 cksum = hash64(afl->fsrv.trace_bits, afl->fsrv.map_size, HASH_CONST);
 
       if (afl->stage_cur == afl->stage_max - 1 && cksum == prev_cksum) {
@@ -2061,7 +2121,7 @@ havoc_stage:
      where we take the input file and make random stacked tweaks. */
 
   u32 *mutation_array;
-  u32  stack_max, rand_max;  // stack_max_pow = afl->havoc_stack_pow2;
+  u32 rand_max; 
 
   switch (afl->input_mode) {
 
@@ -2121,31 +2181,24 @@ havoc_stage:
 
   }
 
-  /*
-  if (temp_len < 64) {
+  u32 use_stacking;
+  u32 *selected_mutators;
+  int prev_mutator;
+  u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
 
-    --stack_max_pow;
-
-  } else if (temp_len <= 8096) {
-
-    ++stack_max_pow;
-
-  } else {
-
-    ++stack_max_pow;
-
-  }
-
-  */
-
-  stack_max = 1 << (1 + rand_below(afl, afl->havoc_stack_pow2));
-
-  // + (afl->extras_cnt ? 2 : 0) + (afl->a_extras_cnt ? 2 : 0);
+  // for training use only bigrams. After training use default Nstacked
+  if (afl->in_training){
+    use_stacking      = 2;
+    selected_mutators = (u32 *)malloc(use_stacking * sizeof(u32));
+  }else{
+    // use_stacking is set from MAB below
+    selected_mutators = (u32 *)malloc((num_of_available_stacks) * sizeof(u32));
+  } 
 
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
-
-    u32 use_stacking = 1 + rand_below(afl, stack_max);
-
+    if (!afl->in_training){
+      use_stacking = select_stack(afl);
+    }
     afl->stage_cur_val = use_stacking;
 
 #ifdef INTROSPECTION
@@ -2153,48 +2206,39 @@ havoc_stage:
              afl->queue_cur->fname, afl->queue_cur->is_ascii, use_stacking);
 #endif
 
+    prev_mutator = -1; // Initial value to indicate no previous mutator
+
     for (i = 0; i < use_stacking; ++i) {
 
-      if (afl->custom_mutators_count) {
+    retry_havoc_step: {
+      
+      u32 r, r_original, item;
 
-        LIST_FOREACH(&afl->custom_mutator_list, struct custom_mutator, {
+      if (afl->in_training) {
+        r = rand_below(afl, mut_max);
+      } else {
+          if (prev_mutator == -1) {
+            // Initial selection according to fixed AFL++ distribution
+            r = mutation_array[rand_below(afl, rand_max)];
 
-          if (unlikely(el->stacked_custom &&
-                       rand_below(afl, 100) < el->stacked_custom_prob)) {
-
-            u8    *custom_havoc_buf = NULL;
-            size_t new_len = el->afl_custom_havoc_mutation(
-                el->data, out_buf, temp_len, &custom_havoc_buf, MAX_FILE);
-            if (unlikely(!custom_havoc_buf)) {
-
-              FATAL("Error in custom_havoc (return %zu)", new_len);
-
-            }
-
-            if (likely(new_len > 0 && custom_havoc_buf)) {
-
-              temp_len = new_len;
-              if (out_buf != custom_havoc_buf) {
-
-                out_buf = afl_realloc(AFL_BUF_PARAM(out), temp_len);
-                if (unlikely(!afl->out_buf)) { PFATAL("alloc"); }
-                memcpy(out_buf, custom_havoc_buf, temp_len);
-
-              }
-
-            }
-
+            // r is in [0,25] U [31,36]. Translate it to [0,31]
+            if (r>=MUT_EXTRA_OVERWRITE) r = r-5;
+          } else {
+            // Selection based on previous mutator
+            r = sample_from_distribution(afl, prev_mutator);
           }
-
-        });
-
       }
 
-    retry_havoc_step: {
+      // these five mutators should have 0 probability (according to AFL++ default)
+      // so for example if we sample 27, the mutator to take place is 27+5 = 32
+      if (r>=MUT_SHUFFLE){
+        r_original = r + 5;
+      }else{
+        r_original = r;
+      }
 
-      u32 r = rand_below(afl, rand_max), item;
 
-      switch (mutation_array[r]) {
+      switch (r_original) {
 
         case MUT_FLIPBIT: {
 
@@ -3271,9 +3315,13 @@ havoc_stage:
 
       }
 
-    }
+      prev_mutator = r;
 
-    }
+      selected_mutators[i] = r;
+
+    } // end - retry_havoc_step:
+
+    } // end - for each stack
 
     if (common_fuzz_stuff(afl, out_buf, temp_len)) { goto abandon_entry; }
 
@@ -3297,11 +3345,48 @@ havoc_stage:
 
       }
 
+      if (afl->in_training){
+        // Update the number of finds of each bigram
+        int prev_mutator_ = -1;
+        for (i=0; i<use_stacking; ++i){
+            if (prev_mutator_ != -1) {
+                afl->finds_per_mutator[prev_mutator_][selected_mutators[i]] += 1;
+            } 
+            prev_mutator_ = selected_mutators[i];
+        }
+      }else{
+        // Update the best performing Nstack
+        afl->finds_per_stack[use_stacking] += 1;
+
+        for (u32 istack=2; istack<num_of_available_stacks; ++istack){
+          if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
+            afl->stack_with_most_finds = istack;
+          }
+        }
+      }
+
+
       havoc_queued = afl->queued_items;
 
     }
 
+
+  } // end - for stage_max (for every cycle in havoc stage)
+
+  free(selected_mutators);
+
+  
+  if (afl->in_training && random_double < random_threshold) { 
+    printf("Finds per mutator:\n");
+    print_u32_array(afl->finds_per_mutator, mut_max);
+    printf("\n");
   }
+  
+  if (!afl->in_training && random_double < random_threshold) { 
+    printf("Finds per stack:\n");
+    print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+    printf("\n");
+  } 
 
   new_hit_cnt = afl->queued_items + afl->saved_crashes;
 

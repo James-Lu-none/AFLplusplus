@@ -748,6 +748,9 @@ void afl_state_deinit(afl_state_t *afl) {
 
   list_remove(&afl_states, afl);
 
+  ck_free(afl->finds_per_mutator);
+  ck_free(afl->mut_probabilities);
+
 }
 
 void afl_states_stop(void) {

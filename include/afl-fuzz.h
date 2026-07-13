@@ -853,6 +853,20 @@ typedef struct afl_state {
   u32   bitsmap_size;
 #endif
 
+  u32 **finds_per_mutator;
+  double **mut_probabilities;
+  
+  u8 in_training;
+
+  u32 **alias_table_mut;    // Alias table for each mutator
+  double **prob_table_mut;  // Probability of choosing original or alias for each mutator
+
+  u32 *finds_per_stack;
+  double *stack_probabilities;
+  u32 stack_with_most_finds; // for fast access in e-greedy algorithm
+  double stack_epsilon;      // hyperparam of the e-greedy algorithm
+  u8 using_egreedy_for_nstack;
+
 } afl_state_t;
 
 struct custom_mutator {
