@@ -122,7 +122,7 @@ RUN python3 -m venv .venv
 ENV PATH="/AFLplusplus/.venv/bin:$PATH"
 
 RUN sed -i.bak 's/^	-/	/g' GNUmakefile && \
-    make clean && make distrib && \
+    make clean && make source-only && \
     ([ "${TEST_BUILD}" ] || (make install)) && \
     mv GNUmakefile.bak GNUmakefile
 
