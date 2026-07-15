@@ -269,12 +269,12 @@ static inline void afl_advance_queue_cycle(afl_state_t *afl) {
         break;
       case 2:
         // increase havoc mutations per fuzz attempt
-        afl->havoc_stack_pow2++;
+        // afl->havoc_stack_pow2++; kk
         afl->expand_havoc = 3;
         break;
       case 3:
         // further increase havoc mutations per fuzz attempt
-        afl->havoc_stack_pow2++;
+        // afl->havoc_stack_pow2++; kk
         afl->expand_havoc = 4;
         break;
       case 4:
