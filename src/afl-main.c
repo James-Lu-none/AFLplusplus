@@ -86,16 +86,23 @@ void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows,
 
 void print_stage_stats(afl_state_t *afl) {
   unsigned long long finds_det = 0, cycles_det = 0, finds_rest = 0, cycles_rest = 0;
-  for (u32 i = 0; i < STAGE_NUM_MAX; i++) {
-      if (i<=15){
+  for (u32 i = 0; i < STAGE_MAX; i++) {
+      if (i == STAGE_HAVOC || i == STAGE_SPLICE) continue;
+
+      // Roughly categorizing deterministic vs rest based on stage enum
+      if (i <= STAGE_SPLICE_INSERT || (i >= STAGE_FLIP1 && i <= STAGE_FLIP32)) {
         finds_det += afl->stage_finds[i];
         cycles_det += afl->stage_cycles[i];
-      } else if (i>=18){
+      } else {
         finds_rest += afl->stage_finds[i];
         cycles_rest += afl->stage_cycles[i];
       }
   }
-  printf("Havoc + splice: %llu finds in %llu cycles (%0.7f)\n", (afl->stage_finds[16]+afl->stage_finds[17]), (afl->stage_cycles[16]+afl->stage_cycles[17]), (double)(afl->stage_finds[16]+afl->stage_finds[17])/(afl->stage_cycles[16]+afl->stage_cycles[17] ? afl->stage_cycles[16]+afl->stage_cycles[17] : 1));
+  printf("Havoc + splice: %llu finds in %llu cycles (%0.7f)\n", 
+    (afl->stage_finds[STAGE_HAVOC] + afl->stage_finds[STAGE_SPLICE]), 
+    (afl->stage_cycles[STAGE_HAVOC] + afl->stage_cycles[STAGE_SPLICE]), 
+    (double)(afl->stage_finds[STAGE_HAVOC] + afl->stage_finds[STAGE_SPLICE])/
+      (afl->stage_cycles[STAGE_HAVOC] + afl->stage_cycles[STAGE_SPLICE] ? afl->stage_cycles[STAGE_HAVOC] + afl->stage_cycles[STAGE_SPLICE] : 1));
   printf("Deterministic: %llu finds in %llu cycles (%0.7f)\n", finds_det, cycles_det, cycles_det ? (double)finds_det/cycles_det : 0);
   printf("Rest: %llu finds in %llu cycles (%0.7f)\n", finds_rest, cycles_rest, cycles_rest ? (double)finds_rest/cycles_rest : 0);
 }
