@@ -675,7 +675,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
     if(!afl->using_egreedy_for_nstack && get_cur_time() - afl->start_time > 2 * 60 * 60 * 1000){
       printf("Decaying epsilon from 1.0 to 0.5. Finds per stack:\n");
-      print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+      print_double_array_1d(afl->finds_per_stack, num_of_available_stacks);
       afl->stack_epsilon = 0.5;
       afl->using_egreedy_for_nstack = true;
     }
@@ -717,7 +717,7 @@ int main(int argc, char **argv_orig, char **envp) {
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
       printf("Finished training phase, will use transition matrix P from now on...\n");
       printf("Finds per mutator:\n");
-      print_u32_array(afl->finds_per_mutator, mut_max_);
+      print_double_array(afl->finds_per_mutator, mut_max_);
       
       u32 num_rows = mut_max_;
       u32 num_cols = mut_max_;
