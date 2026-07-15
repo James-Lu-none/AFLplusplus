@@ -738,6 +738,25 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
 
   q->bitmap_size = count_bytes(afl, afl->fsrv.trace_bits);
   q->prox_score = compute_proximity_score(afl);
+
+  if (afl->semantic_map) {
+      u32 max_score_idx = 0;
+      u32 max_score = 0;
+      for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
+          if (afl->shm.dfg_map[i] > max_score) {
+              max_score = afl->shm.dfg_map[i];
+              max_score_idx = i;
+          }
+      }
+      if (max_score > 0) {
+          q->semantic_type = afl->semantic_map[max_score_idx];
+      } else {
+          q->semantic_type = 0;
+      }
+  } else {
+      q->semantic_type = 0;
+  }
+
   q->handicap = handicap;
   q->cal_failed = 0;
 

@@ -865,6 +865,24 @@ void add_to_queue(afl_state_t *afl, u8 *fname, u32 len, u8 passed_det) {
   if (q->depth > afl->max_depth) { afl->max_depth = q->depth; }
 
   q->prox_score = compute_proximity_score(afl);
+  
+  if (afl->semantic_map) {
+      u32 max_score_idx = 0;
+      u32 max_score = 0;
+      for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
+          if (afl->shm.dfg_map[i] > max_score) {
+              max_score = afl->shm.dfg_map[i];
+              max_score_idx = i;
+          }
+      }
+      if (max_score > 0) {
+          q->semantic_type = afl->semantic_map[max_score_idx];
+      } else {
+          q->semantic_type = 0;
+      }
+  } else {
+      q->semantic_type = 0;
+  }
 
   if (afl->queue_top) {
 

@@ -285,6 +285,8 @@ struct queue_entry {
       tightness_novel; /* New per-site min-slack on any
                           inequality cmp; keep favoured.   */
 
+  u8   semantic_type;                    /* Dominant Semantic Category       */
+
   u32 bitmap_size,                      /* Number of bits set in bitmap     */
 #ifdef INTROSPECTION
       stats_selected,                   /* stats: how often selected        */
@@ -1003,6 +1005,11 @@ typedef struct afl_state {
   double **finds_per_mutator;
   double **mut_probabilities;
   
+  u8 *semantic_map;
+  double **prob_table_semantic;
+  u32 **alias_table_semantic;
+  double **finds_per_semantic;
+
   u8 in_training;
 
   u32 **alias_table_mut;    // Alias table for each mutator

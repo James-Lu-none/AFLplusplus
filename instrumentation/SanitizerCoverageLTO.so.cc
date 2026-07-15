@@ -138,7 +138,61 @@ static bool selective_coverage = false;
 static bool dfg_scoring = false;
 static bool no_filename_match = false;
 static std::set<std::string> instr_targets;
-static std::map<std::string, std::pair<unsigned int, unsigned int>> dfg_node_map;
+struct DFGNodeInfo {
+  unsigned int idx;
+  unsigned int score;
+  bool mapped;
+  int semantic_type;
+};
+static std::map<std::string, DFGNodeInfo> dfg_node_map;
+
+static int classifyInstruction(Instruction &I) {
+  if (CallInst *CI = dyn_cast<CallInst>(&I)) {
+    Function *Callee = CI->getCalledFunction();
+    if (Callee && Callee->hasName()) {
+      StringRef Name = Callee->getName();
+      if (Name.contains("strcmp") || Name.contains("strcpy") || Name.contains("strlen") || 
+          Name.contains("memcpy") || Name.contains("memset") || Name.contains("memcmp") ||
+          Name.contains("strncpy") || Name.contains("strncmp")) {
+        return 2; // String
+      }
+      if (Name.contains("malloc") || Name.contains("free") || Name.contains("calloc") || Name.contains("realloc")) {
+        return 1; // Memory
+      }
+    }
+  }
+  if (isa<LoadInst>(I) || isa<StoreInst>(I) || isa<GetElementPtrInst>(I)) {
+    return 1; // Memory
+  }
+  if (isa<CmpInst>(I) || isa<BranchInst>(I) || isa<SwitchInst>(I)) {
+    return 4; // Logical
+  }
+  if (BinaryOperator *BO = dyn_cast<BinaryOperator>(&I)) {
+    switch (BO->getOpcode()) {
+      case Instruction::And:
+      case Instruction::Or:
+      case Instruction::Xor:
+      case Instruction::Shl:
+      case Instruction::LShr:
+      case Instruction::AShr:
+        return 5; // Bitwise
+      case Instruction::Add:
+      case Instruction::FAdd:
+      case Instruction::Sub:
+      case Instruction::FSub:
+      case Instruction::Mul:
+      case Instruction::FMul:
+      case Instruction::UDiv:
+      case Instruction::SDiv:
+      case Instruction::FDiv:
+      case Instruction::URem:
+      case Instruction::SRem:
+      case Instruction::FRem:
+        return 3; // Math
+    }
+  }
+  return 0; // General
+}
 
 static void initCoverageTarget(char* select_file) {
   std::string line;
@@ -162,7 +216,7 @@ static void initDFGNodeMap(char* dfg_file) {
     std::string score_str = line.substr(0, space_idx);
     std::string targ_line = line.substr(space_idx + 1, std::string::npos);
     int score = stoi(score_str);
-    dfg_node_map[targ_line] = std::make_pair(idx++, (unsigned int) score);
+    dfg_node_map[targ_line] = {idx++, (unsigned int) score, false, 0};
     if (idx >= DFG_MAP_SIZE) {
       std::cout << "Input DFG is too large (check DFG_MAP_SIZE)" << std::endl;
       exit(1);
@@ -1575,6 +1629,16 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   // so we need to prevent them from being dead stripped.
   if (TargetTriple.isOSBinFormatMachO()) appendToUsed(M, GlobalsToAppendToUsed);
   appendToCompilerUsed(M, GlobalsToAppendToCompilerUsed);
+  
+  if (const char *csv_out = getenv("MUOAFL_SEMANTIC_CSV_OUT")) {
+    std::ofstream ofs(csv_out, std::ios_base::app);
+    if (ofs.is_open()) {
+      for (auto const& [targ_line, info] : dfg_node_map) {
+         ofs << info.idx << "," << info.score << "," << targ_line << "," << (info.mapped ? "true" : "false") << "," << info.semantic_type << "\n";
+      }
+    }
+  }
+
   return true;
 
 }
@@ -2708,9 +2772,17 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
         std::string targ_str = stream.str();
         if (dfg_node_map.count(targ_str) > 0) {
           is_dfg_node = true;
-          auto node_info = dfg_node_map[targ_str];
-          node_idx = node_info.first;
-          node_score = node_info.second;
+          auto &node_info = dfg_node_map[targ_str];
+          node_idx = node_info.idx;
+          node_score = node_info.score;
+          node_info.mapped = true;
+          
+          int max_sem = 0;
+          for (auto &inst_inner : BB) {
+              int sem = classifyInstruction(inst_inner);
+              if (sem > max_sem) max_sem = sem;
+          }
+          node_info.semantic_type = max_sem;
           break;
         }
       }
