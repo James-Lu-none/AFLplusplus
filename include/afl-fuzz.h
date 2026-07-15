@@ -1000,7 +1000,7 @@ typedef struct afl_state {
   u32   stat_prev_queued_items; /* delta tracker for per-entry find stats   */
 #endif
 
-  u32 **finds_per_mutator;
+  double **finds_per_mutator;
   double **mut_probabilities;
   
   u8 in_training;
@@ -1008,7 +1008,7 @@ typedef struct afl_state {
   u32 **alias_table_mut;    // Alias table for each mutator
   double **prob_table_mut;  // Probability of choosing original or alias for each mutator
 
-  u32 *finds_per_stack;
+  double *finds_per_stack;
   double *stack_probabilities;
   u32 stack_with_most_finds; // for fast access in e-greedy algorithm
   double stack_epsilon;      // hyperparam of the e-greedy algorithm

@@ -27,8 +27,8 @@
 
 #include "afl-fuzz.h"
 
-extern void print_u32_array(u32 **array, u32 size);
-extern void print_u32_array_1d(u32 *array, u32 size);
+extern void print_double_array(double **array, u32 size);
+extern void print_double_array_1d(double *array, u32 size);
 
 void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
@@ -635,25 +635,22 @@ int main(int argc, char **argv_orig, char **envp) {
 
   u32 mut_max_ = 32; // 32 mutators
 
-  afl->finds_per_mutator = (u32 **)malloc(mut_max_ * sizeof(u32 *));
+  afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
   afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
   
   afl->alias_table_mut       = (u32 **)malloc(mut_max_ * sizeof(u32 *));
   afl->prob_table_mut        = (double **)malloc(mut_max_ * sizeof(double *));
 
   for (u32 i = 0; i < mut_max_; ++i) {
-      afl->finds_per_mutator[i] = (u32 *)malloc(mut_max_ * sizeof(u32));
-      afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
-
-      for (u32 j = 0; j < mut_max_; ++j) {
-          afl->finds_per_mutator[i][j] = 0;
-      }
+      afl->finds_per_mutator[i] = (double *)malloc(mut_max_ * sizeof(double));
+      memset(afl->finds_per_mutator[i], 0, mut_max_ * sizeof(double));
       afl->alias_table_mut[i] = NULL;
       afl->prob_table_mut[i] = NULL;
   }
 
   u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
-  afl->finds_per_stack = (u32 *)malloc(num_of_available_stacks * sizeof(u32));
+  afl->finds_per_stack = (double *)malloc(num_of_available_stacks * sizeof(double));
+  memset(afl->finds_per_stack, 0, num_of_available_stacks * sizeof(double));
   afl->stack_with_most_finds = 2;
   afl->stack_epsilon = 1.0;
   for (u32 i = 0; i < num_of_available_stacks; ++i) {

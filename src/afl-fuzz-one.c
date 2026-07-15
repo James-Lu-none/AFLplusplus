@@ -55,12 +55,12 @@ u32 select_stack(afl_state_t *afl) {
   }
 }
 
-void print_u32_array(u32 **array, u32 size) {
+void print_double_array(double **array, u32 size) {
     printf("[");
     for (u32 i = 0; i < size; ++i) {
         printf("[");
         for (u32 j = 0; j < size; ++j) {
-            printf("%d", array[i][j]);
+            printf("%.4f", array[i][j]);
             if (j < size - 1) {
                 printf(", ");
             }
@@ -71,10 +71,10 @@ void print_u32_array(u32 **array, u32 size) {
     printf("]\n");
 }
 
-void print_u32_array_1d(u32 *array, u32 size) {
+void print_double_array_1d(double *array, u32 size) {
   printf("[");
   for (u32 j = 0; j < size; ++j) {
-      printf("%d", array[j]);
+      printf("%.4f", array[j]);
       if (j < size - 1) {
           printf(", ");
       }
@@ -3677,18 +3677,32 @@ havoc_stage:
 
       }
 
+      double weight = 1.0;
+      u32 new_items = afl->queued_items - havoc_queued;
+      u64 max_prox_score = 0;
+      for (u32 k = 1; k <= new_items; k++) {
+          if (afl->queue_buf[afl->queued_items - k]->prox_score > max_prox_score) {
+              max_prox_score = afl->queue_buf[afl->queued_items - k]->prox_score;
+          }
+      }
+      if (afl->avg_prox_score > 0) {
+          double ratio = (double)max_prox_score / (double)afl->avg_prox_score;
+          if (ratio > 5.0) ratio = 5.0;
+          weight += ratio;
+      }
+
       if (afl->in_training){
         // Update the number of finds of each bigram
         int prev_mutator_ = -1;
         for (i=0; i<use_stacking; ++i){
             if (prev_mutator_ != -1) {
-                afl->finds_per_mutator[prev_mutator_][selected_mutators[i]] += 1;
+                afl->finds_per_mutator[prev_mutator_][selected_mutators[i]] += weight;
             } 
             prev_mutator_ = selected_mutators[i];
         }
       }else{
         // Update the best performing Nstack
-        afl->finds_per_stack[use_stacking] += 1;
+        afl->finds_per_stack[use_stacking] += weight;
         for (u32 istack=2; istack<num_of_available_stacks; ++istack){
           if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
             afl->stack_with_most_finds = istack;
@@ -3705,13 +3719,13 @@ havoc_stage:
   free(selected_mutators);
   if (afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
     printf("Finds per mutator:\n");
-    print_u32_array(afl->finds_per_mutator, mut_max_global);
+    print_double_array(afl->finds_per_mutator, mut_max_global);
     printf("\n");
   }
   
   if (!afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
     printf("Finds per stack:\n");
-    print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+    print_double_array_1d(afl->finds_per_stack, num_of_available_stacks);
     printf("\n");
   }
 
