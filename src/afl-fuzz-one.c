@@ -31,6 +31,56 @@
 #include <limits.h>
 #include "cmplog.h"
 #include "afl-mutations.h"
+#include <math.h>
+
+const u32 mut_max_global = 32;
+
+int sample_from_distribution(afl_state_t *afl, int row) {
+    int i = rand() % mut_max_global;
+    if (rand() / (double) RAND_MAX < afl->prob_table_mut[row][i])
+        return i;
+    else
+        return afl->alias_table_mut[row][i];
+}
+
+u32 select_stack(afl_state_t *afl) {
+  u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
+
+  if ((double) rand() / RAND_MAX < afl->stack_epsilon) {
+      // Exploration: select a random stack
+      return (u32) rand() % (num_of_available_stacks-2) + 2; // starting from 2 stacks
+  } else {
+      // Exploitation: select the stack with the highest number of finds
+      return afl->stack_with_most_finds;
+  }
+}
+
+void print_u32_array(u32 **array, u32 size) {
+    printf("[");
+    for (u32 i = 0; i < size; ++i) {
+        printf("[");
+        for (u32 j = 0; j < size; ++j) {
+            printf("%d", array[i][j]);
+            if (j < size - 1) {
+                printf(", ");
+            }
+        }
+        if (i<size-1) printf("],\n");
+        else printf("]\n");
+    }
+    printf("]\n");
+}
+
+void print_u32_array_1d(u32 *array, u32 size) {
+  printf("[");
+  for (u32 j = 0; j < size; ++j) {
+      printf("%d", array[j]);
+      if (j < size - 1) {
+          printf(", ");
+      }
+  }
+  printf("]\n");
+}
 
 // Ensure the new mopt will not be left behind if we change havoc
 _Static_assert(MOPT_OP_MAX == MUT_MAX, "MOPT_OP_MAX must equal MUT_MAX");
@@ -2286,9 +2336,25 @@ havoc_stage:
   u64 mopt_stage_start_finds = afl->queued_items + afl->saved_crashes;
   u64 mopt_stage_start_execs = afl->fsrv.total_execs;
 
+  u32 use_stacking;
+  u32 *selected_mutators;
+  int prev_mutator;
+  u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
+
+  // for training use only bigrams. After training use default Nstacked
+  if (afl->in_training){
+    use_stacking      = 2;
+    selected_mutators = (u32 *)malloc(use_stacking * sizeof(u32));
+  }else{
+    // use_stacking is set from MAB below
+    selected_mutators = (u32 *)malloc((num_of_available_stacks) * sizeof(u32));
+  } 
+
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
-    u32 use_stacking = 1 + rand_below(afl, stack_max);
+    if (!afl->in_training){
+      use_stacking = select_stack(afl);
+    }
 
     afl->stage_cur_val = use_stacking;
 
@@ -2304,6 +2370,7 @@ havoc_stage:
 
     }
 
+    prev_mutator = -1;
     for (i = 0; i < use_stacking; ++i) {
 
       if (afl->custom_mutators_count) {
@@ -2343,8 +2410,28 @@ havoc_stage:
 
     retry_havoc_step: {
 
-      u32 r = rand_below(afl, rand_max), item;
-      u32 mopt_op = mutation_array[r];
+      u32 r, r_original, item;
+
+      if (afl->in_training) {
+        r = rand_below(afl, mut_max_global);
+      } else {
+          if (prev_mutator == -1) {
+            r = mutation_array[rand_below(afl, rand_max)];
+            if (r>=MUT_EXTRA_OVERWRITE) r = r-5;
+          } else {
+            r = sample_from_distribution(afl, prev_mutator);
+          }
+      }
+
+      if (r>=MUT_SHUFFLE){
+        r_original = r + 5;
+      }else{
+        r_original = r;
+      }
+
+      u32 mopt_op = r_original;
+      prev_mutator = r;
+      selected_mutators[i] = r;
 
       mopt_record_use(afl, mopt_op);
 
@@ -3590,10 +3677,42 @@ havoc_stage:
 
       }
 
+      if (afl->in_training){
+        // Update the number of finds of each bigram
+        int prev_mutator_ = -1;
+        for (i=0; i<use_stacking; ++i){
+            if (prev_mutator_ != -1) {
+                afl->finds_per_mutator[prev_mutator_][selected_mutators[i]] += 1;
+            } 
+            prev_mutator_ = selected_mutators[i];
+        }
+      }else{
+        // Update the best performing Nstack
+        afl->finds_per_stack[use_stacking] += 1;
+        for (u32 istack=2; istack<num_of_available_stacks; ++istack){
+          if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
+            afl->stack_with_most_finds = istack;
+          }
+        }
+      }
+
       havoc_queued = afl->queued_items;
 
     }
 
+  }
+
+  free(selected_mutators);
+  if (afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
+    printf("Finds per mutator:\n");
+    print_u32_array(afl->finds_per_mutator, mut_max_global);
+    printf("\n");
+  }
+  
+  if (!afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
+    printf("Finds per stack:\n");
+    print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+    printf("\n");
   }
 
   mopt_stage_account(

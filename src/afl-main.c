@@ -27,6 +27,95 @@
 
 #include "afl-fuzz.h"
 
+extern void print_u32_array(u32 **array, u32 size);
+extern void print_u32_array_1d(u32 *array, u32 size);
+
+void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows, u32 num_cols) {
+    for (u32 row = 0; row < num_rows; row++) {
+        u32 *alias = malloc(num_cols * sizeof(u32));
+        double *prob = malloc(num_cols * sizeof(double));
+        
+        double *scaled_prob = malloc(num_cols * sizeof(double));
+        u32 *small = malloc(num_cols * sizeof(u32));
+        u32 *large = malloc(num_cols * sizeof(u32));
+
+        for (u32 j = 0; j < num_cols; j++) {
+            alias[j] = j;
+            prob[j] = 0.0;
+            scaled_prob[j] = 0;
+            small[j] = 0;
+            large[j] = 0;
+        }
+         
+        u32 small_size = 0, large_size = 0;
+
+        for (u32 i = 0; i < num_cols; ++i) {
+            scaled_prob[i] = probabilities[row][i] * num_cols;
+            if (scaled_prob[i] < 1.0)
+                small[small_size++] = i;
+            else
+                large[large_size++] = i;
+        }
+
+        while (small_size > 0 && large_size > 0) {
+            u32 l = small[--small_size];
+            u32 g = large[--large_size];
+            prob[l] = scaled_prob[l];
+            alias[l] = g;
+            scaled_prob[g] = (scaled_prob[g] + scaled_prob[l]) - 1.0;
+            if (scaled_prob[g] < 1.0)
+                small[small_size++] = g;
+            else
+                large[large_size++] = g;
+        }
+
+        while (large_size > 0)
+            prob[large[--large_size]] = 1.0;
+
+        while (small_size > 0)
+            prob[small[--small_size]] = 1.0;
+
+        afl->alias_table_mut[row] = alias;
+        afl->prob_table_mut[row] = prob;
+
+        free(scaled_prob);
+        free(small);
+        free(large);
+    }
+}
+
+void print_stage_stats(afl_state_t *afl) {
+  unsigned long long finds_det = 0, cycles_det = 0, finds_rest = 0, cycles_rest = 0;
+  for (u32 i = 0; i < STAGE_NUM_MAX; i++) {
+      if (i<=15){
+        finds_det += afl->stage_finds[i];
+        cycles_det += afl->stage_cycles[i];
+      } else if (i>=18){
+        finds_rest += afl->stage_finds[i];
+        cycles_rest += afl->stage_cycles[i];
+      }
+  }
+  printf("Havoc + splice: %llu finds in %llu cycles (%0.7f)\n", (afl->stage_finds[16]+afl->stage_finds[17]), (afl->stage_cycles[16]+afl->stage_cycles[17]), (double)(afl->stage_finds[16]+afl->stage_finds[17])/(afl->stage_cycles[16]+afl->stage_cycles[17] ? afl->stage_cycles[16]+afl->stage_cycles[17] : 1));
+  printf("Deterministic: %llu finds in %llu cycles (%0.7f)\n", finds_det, cycles_det, cycles_det ? (double)finds_det/cycles_det : 0);
+  printf("Rest: %llu finds in %llu cycles (%0.7f)\n", finds_rest, cycles_rest, cycles_rest ? (double)finds_rest/cycles_rest : 0);
+}
+
+void print_double_array_(double **array, u32 size) {
+    printf("[");
+    for (u32 i = 0; i < size; ++i) {
+        printf("[");
+        for (u32 j = 0; j < size; ++j) {
+            printf("%0.4f", array[i][j]);
+            if (j < size - 1) {
+                printf(", ");
+            }
+        }
+        if (i<size-1) printf("],\n");
+        else printf("]\n");
+    }
+    printf("]\n");
+}
+
 static void afl_import_first(afl_state_t *afl) {
 
   if (!afl->sync_id || !afl->afl_env.afl_import_first) { return; }
@@ -532,11 +621,92 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
 
+  u32 mut_max_ = 32; // 32 mutators
+
+  afl->finds_per_mutator = (u32 **)malloc(mut_max_ * sizeof(u32 *));
+  afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
+  
+  afl->alias_table_mut       = (u32 **)malloc(mut_max_ * sizeof(u32 *));
+  afl->prob_table_mut        = (double **)malloc(mut_max_ * sizeof(double *));
+
+  for (u32 i = 0; i < mut_max_; ++i) {
+      afl->finds_per_mutator[i] = (u32 *)malloc(mut_max_ * sizeof(u32));
+      afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
+
+      for (u32 j = 0; j < mut_max_; ++j) {
+          afl->finds_per_mutator[i][j] = 0;
+      }
+      afl->alias_table_mut[i] = NULL;
+      afl->prob_table_mut[i] = NULL;
+  }
+
+  u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
+  afl->finds_per_stack = (u32 *)malloc(num_of_available_stacks * sizeof(u32));
+  afl->stack_with_most_finds = 2;
+  afl->stack_epsilon = 1.0;
+  for (u32 i = 0; i < num_of_available_stacks; ++i) {
+      afl->finds_per_stack[i] = 0;
+  }
+
+  double training_hours = 1;
+  afl->in_training = true;
+  afl->using_egreedy_for_nstack = false;
+  int queue_cnt = 0;
+
   while (likely(!afl->stop_soon)) {
 
     cull_queue(afl);               // update favored entries
     afl_advance_queue_cycle(afl);  // start a new cycle when queue is exhausted
     ++afl->runs_in_current_cycle;
+
+    queue_cnt++;
+    if ((queue_cnt % 10000 == 0) || (queue_cnt == 10)) {
+      print_stage_stats(afl);
+    }
+
+    if(!afl->using_egreedy_for_nstack && get_cur_time() - afl->start_time > 2 * 60 * 60 * 1000){
+      printf("Decaying epsilon from 1.0 to 0.5. Finds per stack:\n");
+      print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+      afl->stack_epsilon = 0.5;
+      afl->using_egreedy_for_nstack = true;
+    }
+
+    if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
+      printf("Finished training phase, will use transition matrix P from now on...\n");
+      printf("Finds per mutator:\n");
+      print_u32_array(afl->finds_per_mutator, mut_max_);
+      
+      u32 num_rows = mut_max_;
+      u32 num_cols = mut_max_;
+      for (u32 ii = 0; ii < num_rows; ++ii){
+          double sum = 0.0;
+          double epsilon = 1e-5;
+
+          for (u32 j = 0; j < num_cols; j++) {
+              afl->mut_probabilities[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
+              sum += afl->mut_probabilities[ii][j];
+          }
+
+          if (sum < epsilon){
+            sum = 0.0;
+            for (u32 j = 0; j < num_cols; j++) {
+                afl->mut_probabilities[ii][j] = (double)rand() / RAND_MAX;
+                sum += afl->mut_probabilities[ii][j];
+            }
+          }
+
+          for (u32 j = 0; j < num_cols; j++) {
+              afl->mut_probabilities[ii][j] /= (sum + epsilon);
+          }
+      }
+      printf("P: \n");
+      print_double_array_(afl->mut_probabilities, num_rows);
+
+      update_distribution(afl, afl->mut_probabilities, num_rows, num_cols);
+
+      afl->in_training = false;
+    }
+
     afl_fuzz_queue(afl);         // pick and fuzz one queue entry
     afl_maybe_switch_mode(afl);  // switch to exploitation if no new finds
     afl_maybe_sync(afl);         // periodically import other fuzzers' finds

@@ -965,6 +965,33 @@ void afl_state_deinit(afl_state_t *afl) {
 
   ck_free(afl->afl_env.afl_forksrv_supl_gids);
 
+  if (afl->finds_per_mutator) {
+    for (u32 i = 0; i < 32; ++i) { // 32 is mut_max
+      if (afl->finds_per_mutator[i]) ck_free(afl->finds_per_mutator[i]);
+    }
+    ck_free(afl->finds_per_mutator);
+  }
+  if (afl->mut_probabilities) {
+    for (u32 i = 0; i < 32; ++i) {
+      if (afl->mut_probabilities[i]) ck_free(afl->mut_probabilities[i]);
+    }
+    ck_free(afl->mut_probabilities);
+  }
+  if (afl->alias_table_mut) {
+    for (u32 i = 0; i < 32; ++i) {
+      if (afl->alias_table_mut[i]) free(afl->alias_table_mut[i]);
+    }
+    free(afl->alias_table_mut);
+  }
+  if (afl->prob_table_mut) {
+    for (u32 i = 0; i < 32; ++i) {
+      if (afl->prob_table_mut[i]) free(afl->prob_table_mut[i]);
+    }
+    free(afl->prob_table_mut);
+  }
+  if (afl->finds_per_stack) { ck_free(afl->finds_per_stack); }
+  if (afl->stack_probabilities) { ck_free(afl->stack_probabilities); }
+
   list_remove(&afl_states, afl);
 
 }
