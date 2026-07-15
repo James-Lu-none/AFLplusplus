@@ -655,7 +655,7 @@ int main(int argc, char **argv_orig, char **envp) {
       afl->finds_per_stack[i] = 0;
   }
 
-  double training_hours = 1;
+  double training_hours = 0.5;
   afl->in_training = true;
   afl->using_egreedy_for_nstack = false;
   int queue_cnt = 0;
