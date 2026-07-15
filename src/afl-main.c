@@ -108,19 +108,24 @@ void print_stage_stats(afl_state_t *afl) {
 }
 
 void print_double_array_(double **array, u32 size) {
-    printf("[");
+    FILE *f = fopen("/workspace/muofuzz_matrix.txt", "w");
+    if (!f) f = fopen("muofuzz_matrix.txt", "w");
+    if (!f) return;
+    
+    fprintf(f, "[\n");
     for (u32 i = 0; i < size; ++i) {
-        printf("[");
+        fprintf(f, "[");
         for (u32 j = 0; j < size; ++j) {
-            printf("%0.4f", array[i][j]);
+            fprintf(f, "%0.4f", array[i][j]);
             if (j < size - 1) {
-                printf(", ");
+                fprintf(f, ", ");
             }
         }
-        if (i<size-1) printf("],\n");
-        else printf("]\n");
+        if (i < size - 1) fprintf(f, "],\n");
+        else fprintf(f, "]\n");
     }
-    printf("]\n");
+    fprintf(f, "]\n");
+    fclose(f);
 }
 
 static void afl_import_first(afl_state_t *afl) {
@@ -676,6 +681,40 @@ int main(int argc, char **argv_orig, char **envp) {
       print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
       afl->stack_epsilon = 0.5;
       afl->using_egreedy_for_nstack = true;
+    }
+
+    static bool printed_30s = false;
+    if (afl->in_training && !printed_30s && get_cur_time() - afl->start_time > 30 * 1000) {
+      printf("30 seconds snapshot: computing temporary P matrix...\n");
+      u32 num_rows = mut_max_;
+      u32 num_cols = mut_max_;
+      double **temp_p = (double **)malloc(num_rows * sizeof(double *));
+      for (u32 ii = 0; ii < num_rows; ++ii){
+          temp_p[ii] = (double *)malloc(num_cols * sizeof(double));
+          double sum = 0.0;
+          double epsilon = 1e-5;
+
+          for (u32 j = 0; j < num_cols; j++) {
+              temp_p[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
+              sum += temp_p[ii][j];
+          }
+
+          if (sum < epsilon){
+            sum = 0.0;
+            for (u32 j = 0; j < num_cols; j++) {
+                temp_p[ii][j] = (double)rand() / RAND_MAX;
+                sum += temp_p[ii][j];
+            }
+          }
+
+          for (u32 j = 0; j < num_cols; j++) {
+              temp_p[ii][j] /= (sum + epsilon);
+          }
+      }
+      print_double_array_(temp_p, num_rows);
+      for (u32 ii = 0; ii < num_rows; ++ii) free(temp_p[ii]);
+      free(temp_p);
+      printed_30s = true;
     }
 
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
