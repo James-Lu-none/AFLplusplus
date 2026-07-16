@@ -93,7 +93,7 @@ RUN python3 -m venv .venv
 ENV PATH="/AFLplusplus/.venv/bin:$PATH"
 
 RUN sed -i.bak 's/^	-/	/g' GNUmakefile && \
-    make clean && make distrib CPPFLAGS="${CPPFLAGS}" && \
+    make clean && make source-only CPPFLAGS="${CPPFLAGS}" && \
     ([ "${TEST_BUILD}" ] || (make install CPPFLAGS="${CPPFLAGS}")) && \
     mv GNUmakefile.bak GNUmakefile
 
