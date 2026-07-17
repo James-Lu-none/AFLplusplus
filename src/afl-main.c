@@ -27,10 +27,10 @@
 
 #include "afl-fuzz.h"
 
-extern void print_u32_array(u32 **array, u32 size);
-extern void print_u32_array_1d(u32 *array, u32 size);
+extern void print_double_array(double **array, u32 size);
+extern void print_double_array_1d(double *array, u32 size);
 
-void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows, u32 num_cols) {
+void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
         u32 *alias = malloc(num_cols * sizeof(u32));
         double *prob = malloc(num_cols * sizeof(double));
@@ -75,8 +75,11 @@ void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows,
         while (small_size > 0)
             prob[small[--small_size]] = 1.0;
 
-        afl->alias_table_mut[row] = alias;
-        afl->prob_table_mut[row] = prob;
+        if (out_alias_table[row]) free(out_alias_table[row]);
+        if (out_prob_table[row]) free(out_prob_table[row]);
+
+        out_alias_table[row] = alias;
+        out_prob_table[row] = prob;
 
         free(scaled_prob);
         free(small);
@@ -107,26 +110,7 @@ void print_stage_stats(afl_state_t *afl) {
   printf("Rest: %llu finds in %llu cycles (%0.7f)\n", finds_rest, cycles_rest, cycles_rest ? (double)finds_rest/cycles_rest : 0);
 }
 
-void print_double_array_(double **array, u32 size) {
-    FILE *f = fopen("/workspace/muofuzz_matrix.txt", "w");
-    if (!f) f = fopen("muofuzz_matrix.txt", "w");
-    if (!f) return;
-    
-    fprintf(f, "[\n");
-    for (u32 i = 0; i < size; ++i) {
-        fprintf(f, "[");
-        for (u32 j = 0; j < size; ++j) {
-            fprintf(f, "%0.4f", array[i][j]);
-            if (j < size - 1) {
-                fprintf(f, ", ");
-            }
-        }
-        if (i < size - 1) fprintf(f, "],\n");
-        else fprintf(f, "]\n");
-    }
-    fprintf(f, "]\n");
-    fclose(f);
-}
+
 
 static void afl_import_first(afl_state_t *afl) {
 
@@ -635,29 +619,29 @@ int main(int argc, char **argv_orig, char **envp) {
 
   u32 mut_max_ = 32; // 32 mutators
 
-  afl->finds_per_mutator = (u32 **)malloc(mut_max_ * sizeof(u32 *));
+  afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
   afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
   
   afl->alias_table_mut       = (u32 **)malloc(mut_max_ * sizeof(u32 *));
   afl->prob_table_mut        = (double **)malloc(mut_max_ * sizeof(double *));
 
   for (u32 i = 0; i < mut_max_; ++i) {
-      afl->finds_per_mutator[i] = (u32 *)malloc(mut_max_ * sizeof(u32));
+      afl->finds_per_mutator[i] = (double *)malloc(mut_max_ * sizeof(double));
       afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
 
       for (u32 j = 0; j < mut_max_; ++j) {
-          afl->finds_per_mutator[i][j] = 0;
+          afl->finds_per_mutator[i][j] = 0.0;
       }
       afl->alias_table_mut[i] = NULL;
       afl->prob_table_mut[i] = NULL;
   }
 
   u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
-  afl->finds_per_stack = (u32 *)malloc(num_of_available_stacks * sizeof(u32));
+  afl->finds_per_stack = (double *)malloc(num_of_available_stacks * sizeof(double));
   afl->stack_with_most_finds = 2;
   afl->stack_epsilon = 1.0;
   for (u32 i = 0; i < num_of_available_stacks; ++i) {
-      afl->finds_per_stack[i] = 0;
+      afl->finds_per_stack[i] = 0.0;
   }
 
   double training_hours = 0.5;
@@ -677,15 +661,14 @@ int main(int argc, char **argv_orig, char **envp) {
     }
 
     if(!afl->using_egreedy_for_nstack && get_cur_time() - afl->start_time > 2 * 60 * 60 * 1000){
-      printf("Decaying epsilon from 1.0 to 0.5. Finds per stack:\n");
-      print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+      printf("Decaying epsilon from 1.0 to 0.5.\n");
       afl->stack_epsilon = 0.5;
       afl->using_egreedy_for_nstack = true;
     }
 
-    static bool printed_30s = false;
-    if (afl->in_training && !printed_30s && get_cur_time() - afl->start_time > 30 * 1000) {
-      printf("30 seconds snapshot: computing temporary P matrix...\n");
+    static bool printed_600s = false;
+    if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
+      printf("600 seconds snapshot: computing temporary P matrix...\n");
       u32 num_rows = mut_max_;
       u32 num_cols = mut_max_;
       double **temp_p = (double **)malloc(num_rows * sizeof(double *));
@@ -711,16 +694,28 @@ int main(int argc, char **argv_orig, char **envp) {
               temp_p[ii][j] /= (sum + epsilon);
           }
       }
-      print_double_array_(temp_p, num_rows);
+      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix_600s.txt", afl->out_dir);
+      FILE *mut_f = fopen(mut_mat_path, "w");
+      if (mut_f) {
+          fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
+          for (u32 ii = 0; ii < num_rows; ++ii) {
+              for (u32 j = 0; j < num_cols; j++) {
+                  fprintf(mut_f, "%.6f ", temp_p[ii][j]);
+              }
+              fprintf(mut_f, "\n");
+          }
+          fclose(mut_f);
+      }
+      ck_free(mut_mat_path);
+
       for (u32 ii = 0; ii < num_rows; ++ii) free(temp_p[ii]);
       free(temp_p);
-      printed_30s = true;
+      printed_600s = true;
     }
 
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
       printf("Finished training phase, will use transition matrix P from now on...\n");
-      printf("Finds per mutator:\n");
-      print_u32_array(afl->finds_per_mutator, mut_max_);
+
       
       u32 num_rows = mut_max_;
       u32 num_cols = mut_max_;
@@ -745,10 +740,21 @@ int main(int argc, char **argv_orig, char **envp) {
               afl->mut_probabilities[ii][j] /= (sum + epsilon);
           }
       }
-      printf("P: \n");
-      print_double_array_(afl->mut_probabilities, num_rows);
+      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
+      FILE *mut_f = fopen(mut_mat_path, "w");
+      if (mut_f) {
+          fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
+          for (u32 ii = 0; ii < num_rows; ++ii) {
+              for (u32 j = 0; j < num_cols; j++) {
+                  fprintf(mut_f, "%.6f ", afl->mut_probabilities[ii][j]);
+              }
+              fprintf(mut_f, "\n");
+          }
+          fclose(mut_f);
+      }
+      ck_free(mut_mat_path);
 
-      update_distribution(afl, afl->mut_probabilities, num_rows, num_cols);
+      update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
 
       afl->in_training = false;
     }
