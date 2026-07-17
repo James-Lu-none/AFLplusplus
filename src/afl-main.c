@@ -110,26 +110,7 @@ void print_stage_stats(afl_state_t *afl) {
   printf("Rest: %llu finds in %llu cycles (%0.7f)\n", finds_rest, cycles_rest, cycles_rest ? (double)finds_rest/cycles_rest : 0);
 }
 
-void print_double_array_(double **array, u32 size) {
-    FILE *f = fopen("/workspace/muofuzz_matrix.txt", "w");
-    if (!f) f = fopen("muofuzz_matrix.txt", "w");
-    if (!f) return;
-    
-    fprintf(f, "[\n");
-    for (u32 i = 0; i < size; ++i) {
-        fprintf(f, "[");
-        for (u32 j = 0; j < size; ++j) {
-            fprintf(f, "%0.4f", array[i][j]);
-            if (j < size - 1) {
-                fprintf(f, ", ");
-            }
-        }
-        if (i < size - 1) fprintf(f, "],\n");
-        else fprintf(f, "]\n");
-    }
-    fprintf(f, "]\n");
-    fclose(f);
-}
+
 
 static void afl_import_first(afl_state_t *afl) {
 
@@ -722,15 +703,14 @@ int main(int argc, char **argv_orig, char **envp) {
     }
 
     if(!afl->using_egreedy_for_nstack && get_cur_time() - afl->start_time > 2 * 60 * 60 * 1000){
-      printf("Decaying epsilon from 1.0 to 0.5. Finds per stack:\n");
-      print_double_array_1d(afl->finds_per_stack, num_of_available_stacks);
+      printf("Decaying epsilon from 1.0 to 0.5.\n");
       afl->stack_epsilon = 0.5;
       afl->using_egreedy_for_nstack = true;
     }
 
-    static bool printed_30s = false;
-    if (afl->in_training && !printed_30s && get_cur_time() - afl->start_time > 30 * 1000) {
-      printf("30 seconds snapshot: computing temporary P matrix...\n");
+    static bool printed_600s = false;
+    if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
+      printf("600 seconds snapshot: computing temporary P matrices...\n");
       u32 num_rows = mut_max_;
       u32 num_cols = mut_max_;
       double **temp_p = (double **)malloc(num_rows * sizeof(double *));
@@ -756,16 +736,71 @@ int main(int argc, char **argv_orig, char **envp) {
               temp_p[ii][j] /= (sum + epsilon);
           }
       }
-      print_double_array_(temp_p, num_rows);
+      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix_600s.txt", afl->out_dir);
+      FILE *mut_f = fopen(mut_mat_path, "w");
+      if (mut_f) {
+          fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
+          for (u32 ii = 0; ii < num_rows; ++ii) {
+              for (u32 j = 0; j < num_cols; j++) {
+                  fprintf(mut_f, "%.6f ", temp_p[ii][j]);
+              }
+              fprintf(mut_f, "\n");
+          }
+          fclose(mut_f);
+      }
+      ck_free(mut_mat_path);
+
       for (u32 ii = 0; ii < num_rows; ++ii) free(temp_p[ii]);
       free(temp_p);
-      printed_30s = true;
+
+      u32 num_semantic = 6;
+      double **semantic_probs = (double **)malloc(num_semantic * sizeof(double *));
+      for (u32 ii = 0; ii < num_semantic; ++ii){
+          semantic_probs[ii] = (double *)malloc(num_cols * sizeof(double));
+          double sum = 0.0;
+          double epsilon = 1e-5;
+
+          for (u32 j = 0; j < num_cols; j++) {
+              semantic_probs[ii][j] = (double)(afl->finds_per_semantic[ii][j]);
+              sum += semantic_probs[ii][j];
+          }
+
+          if (sum < epsilon){
+            sum = 0.0;
+            for (u32 j = 0; j < num_cols; j++) {
+                semantic_probs[ii][j] = (double)rand() / RAND_MAX;
+                sum += semantic_probs[ii][j];
+            }
+          }
+
+          for (u32 j = 0; j < num_cols; j++) {
+              semantic_probs[ii][j] /= (sum + epsilon);
+          }
+      }
+
+      u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix_600s.txt", afl->out_dir);
+      FILE *sem_f = fopen(sem_mat_path, "w");
+      if (sem_f) {
+          fprintf(sem_f, "Semantic Type x Mutator Probability Matrix:\n");
+          for (u32 ii = 0; ii < num_semantic; ++ii) {
+              for (u32 j = 0; j < num_cols; j++) {
+                  fprintf(sem_f, "%.6f ", semantic_probs[ii][j]);
+              }
+              fprintf(sem_f, "\n");
+          }
+          fclose(sem_f);
+      }
+      ck_free(sem_mat_path);
+
+      for (u32 ii = 0; ii < num_semantic; ++ii) free(semantic_probs[ii]);
+      free(semantic_probs);
+
+      printed_600s = true;
     }
 
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
       printf("Finished training phase, will use transition matrix P from now on...\n");
-      printf("Finds per mutator:\n");
-      print_double_array(afl->finds_per_mutator, mut_max_);
+
       
       u32 num_rows = mut_max_;
       u32 num_cols = mut_max_;
@@ -790,8 +825,7 @@ int main(int argc, char **argv_orig, char **envp) {
               afl->mut_probabilities[ii][j] /= (sum + epsilon);
           }
       }
-      printf("P: \n");
-      print_double_array_(afl->mut_probabilities, num_rows);
+
 
       // Dump mutator probability matrix to file
       u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
@@ -835,8 +869,7 @@ int main(int argc, char **argv_orig, char **envp) {
               semantic_probs[ii][j] /= (sum + epsilon);
           }
       }
-      printf("Semantic P: \n");
-      print_double_array_(semantic_probs, num_semantic);
+
       
       // Dump semantic probability matrix to file
       u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix.txt", afl->out_dir);
