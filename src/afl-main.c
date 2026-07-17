@@ -769,8 +769,7 @@ int main(int argc, char **argv_orig, char **envp) {
     }
 
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
-      printf("Finished training phase, will use transition matrix P from now on...
-");
+      printf("Finished training phase, will use transition matrix P from now on...");
       save_matrices(afl);
       afl->in_training = false;
     }
