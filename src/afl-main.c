@@ -666,54 +666,6 @@ static void save_matrices(afl_state_t *afl) {
       ck_free(mut_mat_path);
 
       update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
-
-      // Compute semantic probabilities
-      u32 num_semantic = 6;
-      double **semantic_probs = (double **)malloc(num_semantic * sizeof(double *));
-      for (u32 ii = 0; ii < num_semantic; ++ii){
-          semantic_probs[ii] = (double *)malloc(num_cols * sizeof(double));
-          double sum = 0.0;
-          double epsilon = 1e-5;
-
-          for (u32 j = 0; j < num_cols; j++) {
-              semantic_probs[ii][j] = (double)(afl->finds_per_semantic[ii][j]);
-              sum += semantic_probs[ii][j];
-          }
-
-          if (sum < epsilon){
-            sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
-                semantic_probs[ii][j] = (double)rand() / RAND_MAX;
-                sum += semantic_probs[ii][j];
-            }
-          }
-
-          for (u32 j = 0; j < num_cols; j++) {
-              semantic_probs[ii][j] /= (sum + epsilon);
-          }
-      }
-      
-      // Dump semantic probability matrix to file
-      printf("Dumping semantic_prob_matrix.txt...\n");
-      u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix.txt", afl->out_dir);
-      FILE *sem_f = fopen(sem_mat_path, "w");
-      if (!sem_f) {
-          PFATAL("Unable to create '%s'", sem_mat_path);
-      }
-      fprintf(sem_f, "Semantic Type x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_semantic; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
-              fprintf(sem_f, "%.6f ", semantic_probs[ii][j]);
-          }
-          fprintf(sem_f, "\n");
-      }
-      fclose(sem_f);
-      printf("Successfully dumped semantic_prob_matrix.txt.\n");
-      ck_free(sem_mat_path);
-
-      update_distribution(afl, semantic_probs, afl->prob_table_semantic, afl->alias_table_semantic, num_semantic, num_cols);
-      for (u32 ii = 0; ii < num_semantic; ++ii) free(semantic_probs[ii]);
-      free(semantic_probs);
 }
 
 
