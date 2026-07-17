@@ -602,6 +602,58 @@ void afl_spawn_ui(afl_state_t *afl) {
 
 #endif
 
+
+static void save_matrices(afl_state_t *afl) {
+      u32 num_rows = mut_max_;
+      u32 num_cols = mut_max_;
+      for (u32 ii = 0; ii < num_rows; ++ii){
+          double sum = 0.0;
+          double epsilon = 1e-5;
+
+          for (u32 j = 0; j < num_cols; j++) {
+              afl->mut_probabilities[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
+              sum += afl->mut_probabilities[ii][j];
+          }
+
+          if (sum < epsilon){
+            sum = 0.0;
+            for (u32 j = 0; j < num_cols; j++) {
+                afl->mut_probabilities[ii][j] = (double)rand() / RAND_MAX;
+                sum += afl->mut_probabilities[ii][j];
+            }
+          }
+
+          for (u32 j = 0; j < num_cols; j++) {
+              afl->mut_probabilities[ii][j] /= (sum + epsilon);
+          }
+      }
+
+      // Dump mutator probability matrix to file
+      printf("Dumping mut_prob_matrix.txt...
+");
+      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
+      FILE *mut_f = fopen(mut_mat_path, "w");
+      if (!mut_f) {
+          PFATAL("Unable to create '%s'", mut_mat_path);
+      }
+      fprintf(mut_f, "Mutator x Mutator Probability Matrix:
+");
+      for (u32 ii = 0; ii < num_rows; ++ii) {
+          for (u32 j = 0; j < num_cols; j++) {
+              fprintf(mut_f, "%.6f ", afl->mut_probabilities[ii][j]);
+          }
+          fprintf(mut_f, "
+");
+      }
+      fclose(mut_f);
+      printf("Successfully dumped mut_prob_matrix.txt.
+");
+      ck_free(mut_mat_path);
+
+      update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
+}
+
+
 int main(int argc, char **argv_orig, char **envp) {
 
   afl_handle_version_help(argc, argv_orig);  // --version/--help: print and exit
@@ -717,51 +769,9 @@ int main(int argc, char **argv_orig, char **envp) {
     }
 
     if (afl->in_training && get_cur_time() - afl->start_time > training_hours * 60 * 60 * 1000){
-      printf("Finished training phase, will use transition matrix P from now on...\n");
-
-      
-      u32 num_rows = mut_max_;
-      u32 num_cols = mut_max_;
-      for (u32 ii = 0; ii < num_rows; ++ii){
-          double sum = 0.0;
-          double epsilon = 1e-5;
-
-          for (u32 j = 0; j < num_cols; j++) {
-              afl->mut_probabilities[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
-              sum += afl->mut_probabilities[ii][j];
-          }
-
-          if (sum < epsilon){
-            sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
-                afl->mut_probabilities[ii][j] = (double)rand() / RAND_MAX;
-                sum += afl->mut_probabilities[ii][j];
-            }
-          }
-
-          for (u32 j = 0; j < num_cols; j++) {
-              afl->mut_probabilities[ii][j] /= (sum + epsilon);
-          }
-      }
-      printf("Dumping mut_prob_matrix.txt...\n");
-      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
-      FILE *mut_f = fopen(mut_mat_path, "w");
-      if (!mut_f) {
-          PFATAL("Unable to create '%s'", mut_mat_path);
-      }
-      fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_rows; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
-              fprintf(mut_f, "%.6f ", afl->mut_probabilities[ii][j]);
-          }
-          fprintf(mut_f, "\n");
-      }
-      fclose(mut_f);
-      printf("Successfully dumped mut_prob_matrix.txt.\n");
-      ck_free(mut_mat_path);
-
-      update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
-
+      printf("Finished training phase, will use transition matrix P from now on...
+");
+      save_matrices(afl);
       afl->in_training = false;
     }
 
@@ -769,6 +779,11 @@ int main(int argc, char **argv_orig, char **envp) {
     afl_maybe_switch_mode(afl);  // switch to exploitation if no new finds
     afl_maybe_sync(afl);         // periodically import other fuzzers' finds
 
+  }
+
+  if (afl->in_training) {
+    printf("Fuzzer stopping early before training phase finished. Dumping transition matrix P...\n");
+    save_matrices(afl);
   }
 
   stop_fuzzing(afl);
