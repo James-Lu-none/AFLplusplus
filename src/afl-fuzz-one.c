@@ -3705,13 +3705,13 @@ havoc_stage:
   free(selected_mutators);
   if (afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
     printf("Finds per mutator:\n");
-    print_u32_array(afl->finds_per_mutator, mut_max_global);
+    print_double_array(afl->finds_per_mutator, mut_max_global);
     printf("\n");
   }
   
   if (!afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
     printf("Finds per stack:\n");
-    print_u32_array_1d(afl->finds_per_stack, num_of_available_stacks);
+    print_double_array_1d(afl->finds_per_stack, num_of_available_stacks);
     printf("\n");
   }
 
