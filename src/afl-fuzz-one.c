@@ -55,26 +55,26 @@ u32 select_stack(afl_state_t *afl) {
   }
 }
 
-void print_u32_array(u32 **array, u32 size) {
-    printf("[");
+void print_double_array(double **array, u32 size) {
+    printf("[\n");
     for (u32 i = 0; i < size; ++i) {
-        printf("[");
+        printf("  [");
         for (u32 j = 0; j < size; ++j) {
-            printf("%d", array[i][j]);
+            printf("%.4f", array[i][j]);
             if (j < size - 1) {
                 printf(", ");
             }
         }
-        if (i<size-1) printf("],\n");
+        if (i < size - 1) printf("],\n");
         else printf("]\n");
     }
     printf("]\n");
 }
 
-void print_u32_array_1d(u32 *array, u32 size) {
+void print_double_array_1d(double *array, u32 size) {
   printf("[");
   for (u32 j = 0; j < size; ++j) {
-      printf("%d", array[j]);
+      printf("%.4f", array[j]);
       if (j < size - 1) {
           printf(", ");
       }
