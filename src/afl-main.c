@@ -687,7 +687,11 @@ int main(int argc, char **argv_orig, char **envp) {
           }
           fclose(sf);
           OKF("Loaded semantic map from %s", sem_file);
+      } else {
+          FATAL("AFL_SEMANTIC_MAP is set to '%s' but the file could not be opened!", sem_file);
       }
+  } else {
+      FATAL("AFL_SEMANTIC_MAP environment variable is not set! This is required for this fuzzer.");
   }
 
   u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
