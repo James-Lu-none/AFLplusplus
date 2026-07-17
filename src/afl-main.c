@@ -647,6 +647,8 @@ int main(int argc, char **argv_orig, char **envp) {
   for (u32 i = 0; i < mut_max_; ++i) {
       afl->finds_per_mutator[i] = (double *)malloc(mut_max_ * sizeof(double));
       memset(afl->finds_per_mutator[i], 0, mut_max_ * sizeof(double));
+      afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
+      memset(afl->mut_probabilities[i], 0, mut_max_ * sizeof(double));
       afl->alias_table_mut[i] = NULL;
       afl->prob_table_mut[i] = NULL;
   }
