@@ -30,7 +30,7 @@
 extern void print_double_array(double **array, u32 size);
 extern void print_double_array_1d(double *array, u32 size);
 
-void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows, u32 num_cols) {
+void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
         u32 *alias = malloc(num_cols * sizeof(u32));
         double *prob = malloc(num_cols * sizeof(double));
@@ -75,8 +75,11 @@ void update_distribution(afl_state_t *afl, double **probabilities, u32 num_rows,
         while (small_size > 0)
             prob[small[--small_size]] = 1.0;
 
-        afl->alias_table_mut[row] = alias;
-        afl->prob_table_mut[row] = prob;
+        if (out_alias_table[row]) free(out_alias_table[row]);
+        if (out_prob_table[row]) free(out_prob_table[row]);
+
+        out_alias_table[row] = alias;
+        out_prob_table[row] = prob;
 
         free(scaled_prob);
         free(small);
