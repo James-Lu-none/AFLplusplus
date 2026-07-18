@@ -620,9 +620,10 @@ static void save_matrices(afl_state_t *afl) {
           }
       }
 
+      u64 elapsed_mins = (get_cur_time() - afl->start_time) / 1000 / 60;
       // Dump mutator probability matrix to file
-      printf("Dumping mut_prob_matrix.txt...\n");
-      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
+      printf("Dumping mut_prob_matrix_%llum.txt...\n", elapsed_mins);
+      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix_%llum.txt", afl->out_dir, elapsed_mins);
       FILE *mut_f = fopen(mut_mat_path, "w");
       if (!mut_f) {
           PFATAL("Unable to create '%s'", mut_mat_path);
@@ -635,7 +636,7 @@ static void save_matrices(afl_state_t *afl) {
           fprintf(mut_f, "\n");
       }
       fclose(mut_f);
-      printf("Successfully dumped mut_prob_matrix.txt.\n");
+      printf("Successfully dumped mut_prob_matrix_%llum.txt.\n", elapsed_mins);
       ck_free(mut_mat_path);
 
       update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
@@ -659,8 +660,8 @@ static void save_matrices(afl_state_t *afl) {
       }
       
       // Dump semantic probability matrix to file
-      printf("Dumping semantic_prob_matrix.txt...\n");
-      u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix.txt", afl->out_dir);
+      printf("Dumping semantic_prob_matrix_%llum.txt...\n", elapsed_mins);
+      u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix_%llum.txt", afl->out_dir, elapsed_mins);
       FILE *sem_f = fopen(sem_mat_path, "w");
       if (!sem_f) {
           PFATAL("Unable to create '%s'", sem_mat_path);
@@ -673,7 +674,7 @@ static void save_matrices(afl_state_t *afl) {
           fprintf(sem_f, "\n");
       }
       fclose(sem_f);
-      printf("Successfully dumped semantic_prob_matrix.txt.\n");
+      printf("Successfully dumped semantic_prob_matrix_%llum.txt.\n", elapsed_mins);
       ck_free(sem_mat_path);
 
       update_distribution(afl, semantic_probs, afl->prob_table_semantic, afl->alias_table_semantic, num_semantic, num_cols);
