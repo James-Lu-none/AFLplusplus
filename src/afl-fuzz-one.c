@@ -2350,7 +2350,7 @@ havoc_stage:
   u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
 
   // for training use only bigrams. After training use default Nstacked
-  if (afl->in_training){
+  if (afl->in_warmup){
     use_stacking      = 2;
     selected_mutators = (u32 *)malloc(use_stacking * sizeof(u32));
   }else{
@@ -2360,7 +2360,7 @@ havoc_stage:
 
   for (afl->stage_cur = 0; afl->stage_cur < afl->stage_max; ++afl->stage_cur) {
 
-    if (!afl->in_training){
+    if (!afl->in_warmup){
       use_stacking = select_stack(afl);
     }
 
@@ -2420,7 +2420,8 @@ havoc_stage:
 
       u32 r, r_original, item;
 
-      if (afl->in_training) {
+      double epsilon = afl->matrices_ready ? afl->current_epsilon : 1.0;
+      if (((double)rand() / RAND_MAX) < epsilon) {
         r = rand_below(afl, mut_max_global);
       } else {
           if (prev_mutator == -1) {
@@ -3701,7 +3702,8 @@ havoc_stage:
           weight += ratio;
       }
 
-      if (afl->in_training){
+      if (!afl->in_warmup) {
+        afl->epoch_finds_count++;
         // Update the number of finds of each bigram
         int prev_mutator_ = -1;
         for (i=0; i<use_stacking; ++i){
@@ -3717,13 +3719,13 @@ havoc_stage:
             }
             prev_mutator_ = selected_mutators[i];
         }
-      }else{
-        // Update the best performing Nstack
-        afl->finds_per_stack[use_stacking] += weight;
-        for (u32 istack=2; istack<num_of_available_stacks; ++istack){
-          if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
-            afl->stack_with_most_finds = istack;
-          }
+      }
+      
+      // Update the best performing Nstack
+      afl->finds_per_stack[use_stacking] += weight;
+      for (u32 istack=2; istack<num_of_available_stacks; ++istack){
+        if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
+          afl->stack_with_most_finds = istack;
         }
       }
 

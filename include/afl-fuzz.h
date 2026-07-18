@@ -1010,7 +1010,13 @@ typedef struct afl_state {
   u32 **alias_table_semantic;
   double **finds_per_semantic;
 
-  u8 in_training;
+  u8 in_training; // Keep this just in case other logic relies on it, though we rely on warmup
+  
+  u64 last_matrix_update_time;
+  bool in_warmup;
+  bool matrices_ready;
+  u32 epoch_finds_count;
+  double current_epsilon;
 
   u32 **alias_table_mut;    // Alias table for each mutator
   double **prob_table_mut;  // Probability of choosing original or alias for each mutator
