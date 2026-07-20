@@ -29,6 +29,7 @@
 
 extern void print_double_array(double **array, u32 size);
 extern void print_double_array_1d(double *array, u32 size);
+extern const u32 mut_max_global;
 
 void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
@@ -604,8 +605,8 @@ void afl_spawn_ui(afl_state_t *afl) {
 
 
 static void save_matrices(afl_state_t *afl) {
-      u32 num_rows = MUT_MAX;
-      u32 num_cols = MUT_MAX;
+      u32 num_rows = mut_max_global;
+      u32 num_cols = mut_max_global;
       for (u32 ii = 0; ii < num_rows; ++ii){
           double sum = 0.0;
           double epsilon = 1e-5;
@@ -807,8 +808,8 @@ int main(int argc, char **argv_orig, char **envp) {
     static bool printed_600s = false;
     if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
       printf("600 seconds snapshot: computing temporary P matrices...\n");
-      u32 num_rows = MUT_MAX;
-      u32 num_cols = MUT_MAX;
+      u32 num_rows = mut_max_global;
+      u32 num_cols = mut_max_global;
       double **temp_p = (double **)malloc(num_rows * sizeof(double *));
       for (u32 ii = 0; ii < num_rows; ++ii){
           temp_p[ii] = (double *)malloc(num_cols * sizeof(double));
