@@ -29,6 +29,7 @@
 
 extern void print_double_array(double **array, u32 size);
 extern void print_double_array_1d(double *array, u32 size);
+extern const u32 mut_max_global;
 
 void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
@@ -684,7 +685,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
 
-  u32 mut_max_ = MUT_MAX; // 37 mutators
+  u32 mut_max_ = mut_max_global; // 37 mutators
 
   afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
   afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
