@@ -665,7 +665,7 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
 
-  u32 mut_max_ = 32; // 32 mutators
+  u32 mut_max_ = MUT_MAX; // 37 mutators
 
   afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
   afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
