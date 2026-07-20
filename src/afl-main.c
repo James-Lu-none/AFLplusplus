@@ -604,8 +604,8 @@ void afl_spawn_ui(afl_state_t *afl) {
 
 
 static void save_matrices(afl_state_t *afl) {
-      u32 num_rows = 32;
-      u32 num_cols = 32;
+      u32 num_rows = MUT_MAX;
+      u32 num_cols = MUT_MAX;
       for (u32 ii = 0; ii < num_rows; ++ii){
           double sum = 0.0;
           double epsilon = 1e-5;
@@ -807,8 +807,8 @@ int main(int argc, char **argv_orig, char **envp) {
     static bool printed_600s = false;
     if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
       printf("600 seconds snapshot: computing temporary P matrices...\n");
-      u32 num_rows = 32;
-      u32 num_cols = 32;
+      u32 num_rows = MUT_MAX;
+      u32 num_cols = MUT_MAX;
       double **temp_p = (double **)malloc(num_rows * sizeof(double *));
       for (u32 ii = 0; ii < num_rows; ++ii){
           temp_p[ii] = (double *)malloc(num_cols * sizeof(double));

@@ -33,7 +33,7 @@
 #include "afl-mutations.h"
 #include <math.h>
 
-const u32 mut_max_global = 32;
+const u32 mut_max_global = MUT_MAX;
 
 int sample_from_distribution(afl_state_t *afl, int row) {
     int i = rand() % mut_max_global;
@@ -2418,7 +2418,7 @@ havoc_stage:
 
     retry_havoc_step: {
 
-      u32 r, r_original, item;
+      u32 r, item;
 
       if (afl->in_training) {
         r = rand_below(afl, mut_max_global);
@@ -2427,19 +2427,12 @@ havoc_stage:
             u8 sem_type = afl->queue_cur->semantic_type;
             if (sem_type >= 6) sem_type = 0;
             r = sample_from_semantic_distribution(afl, sem_type);
-            if (r>=MUT_EXTRA_OVERWRITE) r = r-5;
           } else {
             r = sample_from_distribution(afl, prev_mutator);
           }
       }
 
-      if (r>=MUT_SHUFFLE){
-        r_original = r + 5;
-      }else{
-        r_original = r;
-      }
-
-      u32 mopt_op = r_original;
+      u32 mopt_op = r;
       prev_mutator = r;
       selected_mutators[i] = r;
 
