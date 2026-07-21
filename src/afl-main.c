@@ -31,7 +31,7 @@ extern void print_double_array(double **array, u32 size);
 extern void print_double_array_1d(double *array, u32 size);
 extern const u32 mut_max_global;
 
-void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
+void update_distribution(double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
     for (u32 row = 0; row < num_rows; row++) {
         u32 *alias = malloc(num_cols * sizeof(u32));
         double *prob = malloc(num_cols * sizeof(double));
@@ -640,7 +640,7 @@ static void save_matrices(afl_state_t *afl) {
       printf("Successfully dumped mut_prob_matrix_%llum.txt.\n", elapsed_mins);
       ck_free(mut_mat_path);
 
-      update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
+      update_distribution(afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
 
       // Compute semantic probabilities
       u32 num_semantic = 6;
@@ -678,7 +678,7 @@ static void save_matrices(afl_state_t *afl) {
       printf("Successfully dumped semantic_prob_matrix_%llum.txt.\n", elapsed_mins);
       ck_free(sem_mat_path);
 
-      update_distribution(afl, semantic_probs, afl->prob_table_semantic, afl->alias_table_semantic, num_semantic, num_cols);
+      update_distribution(semantic_probs, afl->prob_table_semantic, afl->alias_table_semantic, num_semantic, num_cols);
       for (u32 ii = 0; ii < num_semantic; ++ii) free(semantic_probs[ii]);
       free(semantic_probs);
 }
@@ -698,8 +698,6 @@ int main(int argc, char **argv_orig, char **envp) {
   afl_load_seeds(afl);               // dry-run seeds, calibrate, cull queue
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
-
-  // 37 mutators
 
   afl->finds_per_mutator = (double **)malloc(mut_max_global * sizeof(double *));
   afl->mut_probabilities = (double **)malloc(mut_max_global * sizeof(double *));
@@ -824,13 +822,13 @@ int main(int argc, char **argv_orig, char **envp) {
           printf("Setting epsilon to %.2f\n", afl->current_epsilon);
           
           // Apply decay
-          for (u32 ii = 0; ii < 32; ++ii) {
-              for (u32 j = 0; j < 32; j++) {
+          for (u32 ii = 0; ii < mut_max_global; ++ii) {
+              for (u32 j = 0; j < mut_max_global; j++) {
                   afl->finds_per_mutator[ii][j] *= 0.5;
               }
           }
           for (u32 ii = 0; ii < 6; ++ii) {
-              for (u32 j = 0; j < 32; j++) {
+              for (u32 j = 0; j < mut_max_global; j++) {
                   afl->finds_per_semantic[ii][j] *= 0.5;
               }
           }
