@@ -714,19 +714,17 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
 
-  u32 mut_max_ = mut_max_global; // 37 mutators
-
-  afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
-  afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
+  afl->finds_per_mutator = (double **)malloc(mut_max_global * sizeof(double *));
+  afl->mut_probabilities = (double **)malloc(mut_max_global * sizeof(double *));
   
-  afl->alias_table_mut       = (u32 **)malloc(mut_max_ * sizeof(u32 *));
-  afl->prob_table_mut        = (double **)malloc(mut_max_ * sizeof(double *));
+  afl->alias_table_mut       = (u32 **)malloc(mut_max_global * sizeof(u32 *));
+  afl->prob_table_mut        = (double **)malloc(mut_max_global * sizeof(double *));
 
-  for (u32 i = 0; i < mut_max_; ++i) {
-      afl->finds_per_mutator[i] = (double *)malloc(mut_max_ * sizeof(double));
-      memset(afl->finds_per_mutator[i], 0, mut_max_ * sizeof(double));
-      afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
-      memset(afl->mut_probabilities[i], 0, mut_max_ * sizeof(double));
+  for (u32 i = 0; i < mut_max_global; ++i) {
+      afl->finds_per_mutator[i] = (double *)malloc(mut_max_global * sizeof(double));
+      memset(afl->finds_per_mutator[i], 0, mut_max_global * sizeof(double));
+      afl->mut_probabilities[i] = (double *)malloc(mut_max_global * sizeof(double));
+      memset(afl->mut_probabilities[i], 0, mut_max_global * sizeof(double));
       afl->alias_table_mut[i] = NULL;
       afl->prob_table_mut[i] = NULL;
   }
@@ -738,11 +736,11 @@ int main(int argc, char **argv_orig, char **envp) {
   afl->finds_per_semantic = (double **)malloc(num_semantic * sizeof(double *));
   
   for (u32 i = 0; i < num_semantic; ++i) {
-      afl->prob_table_semantic[i] = (double *)malloc(mut_max_ * sizeof(double));
+      afl->prob_table_semantic[i] = (double *)malloc(mut_max_global * sizeof(double));
       afl->alias_table_semantic[i] = NULL;
-      afl->finds_per_semantic[i] = (double *)malloc(mut_max_ * sizeof(double));
-      for (u32 j = 0; j < mut_max_; ++j) {
-          afl->prob_table_semantic[i][j] = 1.0 / mut_max_;
+      afl->finds_per_semantic[i] = (double *)malloc(mut_max_global * sizeof(double));
+      for (u32 j = 0; j < mut_max_global; ++j) {
+          afl->prob_table_semantic[i][j] = 1.0 / mut_max_global;
           afl->finds_per_semantic[i][j] = 0;
       }
   }
