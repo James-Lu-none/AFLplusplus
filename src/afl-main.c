@@ -31,16 +31,16 @@ extern void print_double_array(double **array, u32 size);
 extern void print_double_array_1d(double *array, u32 size);
 extern const u32 mut_max_global;
 
-void update_distribution(afl_state_t *afl, double **probabilities, double **out_prob_table, u32 **out_alias_table, u32 num_rows, u32 num_cols) {
-    for (u32 row = 0; row < num_rows; row++) {
-        u32 *alias = malloc(num_cols * sizeof(u32));
-        double *prob = malloc(num_cols * sizeof(double));
+void update_distribution(double **probabilities, double **out_prob_table, u32 **out_alias_table) {
+    for (u32 row = 0; row < mut_max_global; row++) {
+        u32 *alias = malloc(mut_max_global * sizeof(u32));
+        double *prob = malloc(mut_max_global * sizeof(double));
         
-        double *scaled_prob = malloc(num_cols * sizeof(double));
-        u32 *small = malloc(num_cols * sizeof(u32));
-        u32 *large = malloc(num_cols * sizeof(u32));
+        double *scaled_prob = malloc(mut_max_global * sizeof(double));
+        u32 *small = malloc(mut_max_global * sizeof(u32));
+        u32 *large = malloc(mut_max_global * sizeof(u32));
 
-        for (u32 j = 0; j < num_cols; j++) {
+        for (u32 j = 0; j < mut_max_global; j++) {
             alias[j] = j;
             prob[j] = 0.0;
             scaled_prob[j] = 0;
@@ -50,8 +50,8 @@ void update_distribution(afl_state_t *afl, double **probabilities, double **out_
          
         u32 small_size = 0, large_size = 0;
 
-        for (u32 i = 0; i < num_cols; ++i) {
-            scaled_prob[i] = probabilities[row][i] * num_cols;
+        for (u32 i = 0; i < mut_max_global; ++i) {
+            scaled_prob[i] = probabilities[row][i] * mut_max_global;
             if (scaled_prob[i] < 1.0)
                 small[small_size++] = i;
             else
@@ -624,26 +624,24 @@ void afl_spawn_ui(afl_state_t *afl) {
 
 
 static void save_matrices(afl_state_t *afl) {
-      u32 num_rows = 32;
-      u32 num_cols = 32;
-      for (u32 ii = 0; ii < num_rows; ++ii){
+      for (u32 ii = 0; ii < mut_max_global; ++ii){
           double sum = 0.0;
           double epsilon = 1e-5;
 
-          for (u32 j = 0; j < num_cols; j++) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               afl->mut_probabilities[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
               sum += afl->mut_probabilities[ii][j];
           }
 
           if (sum < epsilon){
             sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
+            for (u32 j = 0; j < mut_max_global; j++) {
                 afl->mut_probabilities[ii][j] = (double)rand() / RAND_MAX;
                 sum += afl->mut_probabilities[ii][j];
             }
           }
 
-          for (u32 j = 0; j < num_cols; j++) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               afl->mut_probabilities[ii][j] /= (sum + epsilon);
           }
       }
@@ -656,8 +654,8 @@ static void save_matrices(afl_state_t *afl) {
           PFATAL("Unable to create '%s'", mut_mat_path);
       }
       fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_rows; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
+      for (u32 ii = 0; ii < mut_max_global; ++ii) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               fprintf(mut_f, "%.6f ", afl->mut_probabilities[ii][j]);
           }
           fprintf(mut_f, "\n");
@@ -666,7 +664,7 @@ static void save_matrices(afl_state_t *afl) {
       printf("Successfully dumped mut_prob_matrix.txt.\n");
       ck_free(mut_mat_path);
 
-      update_distribution(afl, afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
+      update_distribution(afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut);
 }
 
 
@@ -685,19 +683,19 @@ int main(int argc, char **argv_orig, char **envp) {
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
 
-  u32 mut_max_ = mut_max_global; // 37 mutators
+  // 37 mutators
 
-  afl->finds_per_mutator = (double **)malloc(mut_max_ * sizeof(double *));
-  afl->mut_probabilities = (double **)malloc(mut_max_ * sizeof(double *));
+  afl->finds_per_mutator = (double **)malloc(mut_max_global * sizeof(double *));
+  afl->mut_probabilities = (double **)malloc(mut_max_global * sizeof(double *));
   
-  afl->alias_table_mut       = (u32 **)malloc(mut_max_ * sizeof(u32 *));
-  afl->prob_table_mut        = (double **)malloc(mut_max_ * sizeof(double *));
+  afl->alias_table_mut       = (u32 **)malloc(mut_max_global * sizeof(u32 *));
+  afl->prob_table_mut        = (double **)malloc(mut_max_global * sizeof(double *));
 
-  for (u32 i = 0; i < mut_max_; ++i) {
-      afl->finds_per_mutator[i] = (double *)malloc(mut_max_ * sizeof(double));
-      memset(afl->finds_per_mutator[i], 0, mut_max_ * sizeof(double));
-      afl->mut_probabilities[i] = (double *)malloc(mut_max_ * sizeof(double));
-      memset(afl->mut_probabilities[i], 0, mut_max_ * sizeof(double));
+  for (u32 i = 0; i < mut_max_global; ++i) {
+      afl->finds_per_mutator[i] = (double *)malloc(mut_max_global * sizeof(double));
+      memset(afl->finds_per_mutator[i], 0, mut_max_global * sizeof(double));
+      afl->mut_probabilities[i] = (double *)malloc(mut_max_global * sizeof(double));
+      memset(afl->mut_probabilities[i], 0, mut_max_global * sizeof(double));
       afl->alias_table_mut[i] = NULL;
       afl->prob_table_mut[i] = NULL;
   }
@@ -737,28 +735,26 @@ int main(int argc, char **argv_orig, char **envp) {
     static bool printed_600s = false;
     if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
       printf("600 seconds snapshot: computing temporary P matrix...\n");
-      u32 num_rows = 32;
-      u32 num_cols = 32;
-      double **temp_p = (double **)malloc(num_rows * sizeof(double *));
-      for (u32 ii = 0; ii < num_rows; ++ii){
-          temp_p[ii] = (double *)malloc(num_cols * sizeof(double));
+      double **temp_p = (double **)malloc(mut_max_global * sizeof(double *));
+      for (u32 ii = 0; ii < mut_max_global; ++ii){
+          temp_p[ii] = (double *)malloc(mut_max_global * sizeof(double));
           double sum = 0.0;
           double epsilon = 1e-5;
 
-          for (u32 j = 0; j < num_cols; j++) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               temp_p[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
               sum += temp_p[ii][j];
           }
 
           if (sum < epsilon){
             sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
+            for (u32 j = 0; j < mut_max_global; j++) {
                 temp_p[ii][j] = (double)rand() / RAND_MAX;
                 sum += temp_p[ii][j];
             }
           }
 
-          for (u32 j = 0; j < num_cols; j++) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               temp_p[ii][j] /= (sum + epsilon);
           }
       }
@@ -769,8 +765,8 @@ int main(int argc, char **argv_orig, char **envp) {
           PFATAL("Unable to create '%s'", mut_mat_path);
       }
       fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_rows; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
+      for (u32 ii = 0; ii < mut_max_global; ++ii) {
+          for (u32 j = 0; j < mut_max_global; j++) {
               fprintf(mut_f, "%.6f ", temp_p[ii][j]);
           }
           fprintf(mut_f, "\n");
@@ -779,7 +775,7 @@ int main(int argc, char **argv_orig, char **envp) {
       printf("Successfully dumped mut_prob_matrix_600s.txt.\n");
       ck_free(mut_mat_path);
 
-      for (u32 ii = 0; ii < num_rows; ++ii) free(temp_p[ii]);
+      for (u32 ii = 0; ii < mut_max_global; ++ii) free(temp_p[ii]);
       free(temp_p);
       printed_600s = true;
     }
