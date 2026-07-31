@@ -147,7 +147,7 @@ struct DFGNodeInfo {
 };
 static std::map<std::string, DFGNodeInfo> dfg_node_map;
 
-static std::unordered_map<std::string, uint32_t> ClusterMap;
+static std::unordered_map<std::string, int> ClusterMap;
 static bool cluster_scoring = false;
 
 static void initClusterMap(char* cluster_file) {
@@ -1663,6 +1663,7 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     std::ofstream ofs(csv_out, std::ios_base::app);
     if (ofs.is_open()) {
       for (auto const& [targ_line, info] : dfg_node_map) {
+         if (info.semantic_type == 0) continue; // Skip default/noise blocks to save space
          ofs << info.idx << "," << info.score << "," << targ_line << "," << (info.mapped ? "true" : "false") << "," << info.semantic_type << "\n";
       }
     }
@@ -2820,7 +2821,11 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
 
         if (cluster_scoring && ClusterMap.count(targ_str) > 0) {
           is_clustered = true;
-          cluster_id = ClusterMap[targ_str];
+          cluster_id = ClusterMap[targ_str] + 1; // Shift by 1: -1 -> 0 (default mutator), 0 -> 1, 1 -> 2
+          
+          if (dfg_scoring && dfg_node_map.count(targ_str) > 0) {
+              dfg_node_map[targ_str].semantic_type = cluster_id; // Override heuristic with python cluster
+          }
         }
 
         if ((!dfg_scoring || is_dfg_node) && (!cluster_scoring || is_clustered)) {
