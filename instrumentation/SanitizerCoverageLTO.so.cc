@@ -411,7 +411,6 @@ class ModuleSanitizerCoverageLTO
   Module                          *Mo = NULL;
   GlobalVariable                  *AFLContext = NULL;
   GlobalVariable                  *AFLMapPtr = NULL;
-  GlobalVariable                  *AFLCurrentCluster = NULL;
   GlobalVariable                  *AFLMapDFGPtr = NULL;
   GlobalVariable                  *AFLCovMapSize = NULL;
   GlobalVariable                  *AFLIJONState = NULL;
@@ -858,10 +857,6 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
       AFLMapPtr = new GlobalVariable(
           M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
 
-    AFLCurrentCluster = M.getGlobalVariable("__afl_current_cluster");
-    if (!AFLCurrentCluster)
-      AFLCurrentCluster = new GlobalVariable(
-          M, Int32Tyi, false, GlobalValue::ExternalLinkage, Zero32, "__afl_current_cluster");
 
   } else {
 
@@ -2848,10 +2843,6 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
 
   IRBuilder<> IRB(&*IP);
-  if (cluster_scoring && AFLCurrentCluster) {
-    ConstantInt *ClusterLoc = ConstantInt::get(Int32Tyi, cluster_id);
-    IRB.CreateStore(ClusterLoc, AFLCurrentCluster);
-  }
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)
