@@ -51,6 +51,14 @@ int sample_from_semantic_distribution(afl_state_t *afl, int row) {
         return afl->alias_table_semantic[row][i];
 }
 
+int sample_from_semantic_mut_distribution(afl_state_t *afl, int semantic_id, int prev_mutator) {
+    int i = rand() % mut_max_global;
+    if (rand() / (double) RAND_MAX < afl->prob_table_semantic_mut[semantic_id][prev_mutator][i])
+        return i;
+    else
+        return afl->alias_table_semantic_mut[semantic_id][prev_mutator][i];
+}
+
 u32 select_stack(afl_state_t *afl) {
   u32 num_of_available_stacks = 1<<afl->havoc_stack_pow2;
 
@@ -2423,12 +2431,13 @@ havoc_stage:
       if (afl->in_training) {
         r = rand_below(afl, mut_max_global);
       } else {
+          u8 sem_type = afl->queue_cur->semantic_type;
+          if (sem_type >= afl->num_semantic) sem_type = 0; // fallback to unclassified/default
+          
           if (prev_mutator == -1) {
-            u8 sem_type = afl->queue_cur->semantic_type;
-            if (sem_type >= 6) sem_type = 0;
             r = sample_from_semantic_distribution(afl, sem_type);
           } else {
-            r = sample_from_distribution(afl, prev_mutator);
+            r = sample_from_semantic_mut_distribution(afl, sem_type, prev_mutator);
           }
       }
 
@@ -3698,14 +3707,14 @@ havoc_stage:
         // Update the number of finds of each bigram
         int prev_mutator_ = -1;
         for (i=0; i<use_stacking; ++i){
+            u8 sem_type = afl->queue_cur->semantic_type;
+            if (sem_type >= afl->num_semantic) sem_type = 0; // fallback
+
             if (i == 0) {
-                u8 sem_type = afl->queue_cur->semantic_type;
-                if (sem_type < 6) {
-                    afl->finds_per_semantic[sem_type][selected_mutators[i]] += weight;
-                }
+                afl->finds_per_semantic[sem_type][selected_mutators[i]] += weight;
             } else {
                 if (prev_mutator_ != -1) {
-                    afl->finds_per_mutator[prev_mutator_][selected_mutators[i]] += weight;
+                    afl->finds_per_semantic_mut[sem_type][prev_mutator_][selected_mutators[i]] += weight;
                 } 
             }
             prev_mutator_ = selected_mutators[i];

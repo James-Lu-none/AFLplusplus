@@ -16,6 +16,7 @@
 #include <set>
 #include <iostream>
 #include <map>
+#include <unordered_map>
 #include <sstream>
 
 #include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
@@ -146,6 +147,22 @@ struct DFGNodeInfo {
 };
 static std::map<std::string, DFGNodeInfo> dfg_node_map;
 
+static std::unordered_map<std::string, uint32_t> ClusterMap;
+static bool cluster_scoring = false;
+
+static void initClusterMap(char* cluster_file) {
+  std::string line;
+  std::ifstream stream(cluster_file);
+
+  while (std::getline(stream, line)) {
+    std::size_t space_idx = line.find(" ");
+    if (space_idx == std::string::npos) continue;
+    std::string cluster_str = line.substr(0, space_idx);
+    std::string targ_line = line.substr(space_idx + 1, std::string::npos);
+    ClusterMap[targ_line] = stoi(cluster_str);
+  }
+}
+
 static int classifyInstruction(Instruction &I) {
   if (CallInst *CI = dyn_cast<CallInst>(&I)) {
     Function *Callee = CI->getCalledFunction();
@@ -240,6 +257,12 @@ static void initialize(void) {
   if (dfg_file) {
     dfg_scoring = true;
     initDFGNodeMap(dfg_file);
+  }
+
+  char* cluster_file = getenv("AFL_LLVM_CLUSTER_MAP");
+  if (cluster_file) {
+    cluster_scoring = true;
+    initClusterMap(cluster_file);
   }
 
   if (getenv("DAFL_NO_FILENAME_MATCH")) no_filename_match = true;
@@ -388,6 +411,7 @@ class ModuleSanitizerCoverageLTO
   Module                          *Mo = NULL;
   GlobalVariable                  *AFLContext = NULL;
   GlobalVariable                  *AFLMapPtr = NULL;
+  GlobalVariable                  *AFLCurrentCluster = NULL;
   GlobalVariable                  *AFLMapDFGPtr = NULL;
   GlobalVariable                  *AFLCovMapSize = NULL;
   GlobalVariable                  *AFLIJONState = NULL;
@@ -833,6 +857,11 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
     if (!AFLMapPtr)
       AFLMapPtr = new GlobalVariable(
           M, PtrTy, false, GlobalValue::ExternalLinkage, 0, "__afl_area_ptr");
+
+    AFLCurrentCluster = M.getGlobalVariable("__afl_current_cluster");
+    if (!AFLCurrentCluster)
+      AFLCurrentCluster = new GlobalVariable(
+          M, Int32Tyi, false, GlobalValue::ExternalLinkage, Zero32, "__afl_current_cluster");
 
   } else {
 
@@ -2756,7 +2785,10 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   unsigned int node_idx = 0;
   unsigned int node_score = 0;
 
-  if (dfg_scoring) {
+  bool is_clustered = false;
+  uint32_t cluster_id = 0;
+
+  if (dfg_scoring || cluster_scoring) {
     for (auto &inst : BB) {
       DebugLoc dbg = inst.getDebugLoc();
       DILocation* DILoc = dbg.get();
@@ -2770,7 +2802,8 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
         std::ostringstream stream;
         stream << inst_file << ":" << line_no;
         std::string targ_str = stream.str();
-        if (dfg_node_map.count(targ_str) > 0) {
+        
+        if (dfg_scoring && dfg_node_map.count(targ_str) > 0) {
           is_dfg_node = true;
           auto &node_info = dfg_node_map[targ_str];
           node_idx = node_info.idx;
@@ -2783,7 +2816,15 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
               if (sem > max_sem) max_sem = sem;
           }
           node_info.semantic_type = max_sem;
-          break;
+        }
+
+        if (cluster_scoring && ClusterMap.count(targ_str) > 0) {
+          is_clustered = true;
+          cluster_id = ClusterMap[targ_str];
+        }
+
+        if ((!dfg_scoring || is_dfg_node) && (!cluster_scoring || is_clustered)) {
+            break; // Stop parsing instructions if we found what we're looking for
         }
       }
     }
@@ -2802,6 +2843,10 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
   }
 
   IRBuilder<> IRB(&*IP);
+  if (cluster_scoring && AFLCurrentCluster) {
+    ConstantInt *ClusterLoc = ConstantInt::get(Int32Tyi, cluster_id);
+    IRB.CreateStore(ClusterLoc, AFLCurrentCluster);
+  }
   if (Options.TracePC) {
 
     IRB.CreateCall(SanCovTracePC)

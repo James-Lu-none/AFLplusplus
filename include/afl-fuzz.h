@@ -1005,10 +1005,15 @@ typedef struct afl_state {
   double **finds_per_mutator;
   double **mut_probabilities;
   
+  u32 num_semantic;
   u8 *semantic_map;
   double **prob_table_semantic;
   u32 **alias_table_semantic;
   double **finds_per_semantic;
+  
+  double ***prob_table_semantic_mut;
+  u32 ***alias_table_semantic_mut;
+  double ***finds_per_semantic_mut;
 
   u8 in_training;
 
