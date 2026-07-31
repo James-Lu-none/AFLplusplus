@@ -3689,20 +3689,6 @@ havoc_stage:
 
       }
 
-      double weight = 1.0;
-      u32 new_items = afl->queued_items - havoc_queued;
-      u64 max_prox_score = 0;
-      for (u32 k = 1; k <= new_items; k++) {
-          if (afl->queue_buf[afl->queued_items - k]->prox_score > max_prox_score) {
-              max_prox_score = afl->queue_buf[afl->queued_items - k]->prox_score;
-          }
-      }
-      if (afl->avg_prox_score > 0) {
-          double ratio = (double)max_prox_score / (double)afl->avg_prox_score;
-          if (ratio > 5.0) ratio = 5.0;
-          weight += ratio;
-      }
-
       if (afl->in_training){
         // Update the number of finds of each bigram
         int prev_mutator_ = -1;
@@ -3711,17 +3697,17 @@ havoc_stage:
             if (sem_type >= afl->num_semantic) sem_type = 0; // fallback
 
             if (i == 0) {
-                afl->finds_per_semantic[sem_type][selected_mutators[i]] += weight;
+                afl->finds_per_semantic[sem_type][selected_mutators[i]] += 1.0;
             } else {
                 if (prev_mutator_ != -1) {
-                    afl->finds_per_semantic_mut[sem_type][prev_mutator_][selected_mutators[i]] += weight;
+                    afl->finds_per_semantic_mut[sem_type][prev_mutator_][selected_mutators[i]] += 1.0;
                 } 
             }
             prev_mutator_ = selected_mutators[i];
         }
       }else{
         // Update the best performing Nstack
-        afl->finds_per_stack[use_stacking] += weight;
+        afl->finds_per_stack[use_stacking] += 1.0;
         for (u32 istack=2; istack<num_of_available_stacks; ++istack){
           if(afl->finds_per_stack[istack] >= afl->finds_per_stack[afl->stack_with_most_finds]){
             afl->stack_with_most_finds = istack;
