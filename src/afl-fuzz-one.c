@@ -43,13 +43,7 @@ int sample_from_distribution(afl_state_t *afl, int row) {
         return afl->alias_table_mut[row][i];
 }
 
-int sample_from_semantic_distribution(afl_state_t *afl, int row) {
-    int i = rand() % mut_max_global;
-    if (rand() / (double) RAND_MAX < afl->prob_table_semantic[row][i])
-        return i;
-    else
-        return afl->alias_table_semantic[row][i];
-}
+
 
 int sample_from_semantic_mut_distribution(afl_state_t *afl, int semantic_id, int prev_mutator) {
     int i = rand() % mut_max_global;
@@ -2435,7 +2429,7 @@ havoc_stage:
           if (sem_type >= afl->num_semantic) sem_type = 0; // fallback to unclassified/default
           
           if (prev_mutator == -1) {
-            r = sample_from_semantic_distribution(afl, sem_type);
+            r = mutation_array[rand_below(afl, rand_max)];
           } else {
             r = sample_from_semantic_mut_distribution(afl, sem_type, prev_mutator);
           }
@@ -3697,7 +3691,7 @@ havoc_stage:
             if (sem_type >= afl->num_semantic) sem_type = 0; // fallback
 
             if (i == 0) {
-                afl->finds_per_semantic[sem_type][selected_mutators[i]] += 1.0;
+                // First mutator is selected purely randomly, no need to update 2D reward matrix
             } else {
                 if (prev_mutator_ != -1) {
                     afl->finds_per_semantic_mut[sem_type][prev_mutator_][selected_mutators[i]] += 1.0;

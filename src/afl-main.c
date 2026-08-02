@@ -649,37 +649,8 @@ static void save_matrices(afl_state_t *afl) {
 
       update_distribution(afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
 
-      // Compute semantic probabilities (2D for first mutation)
-      u32 num_semantic = afl->num_semantic;
-      double **semantic_probs_2d = (double **)malloc(num_semantic * sizeof(double *));
-      for (u32 ii = 0; ii < num_semantic; ++ii){
-          semantic_probs_2d[ii] = (double *)malloc(num_cols * sizeof(double));
-          double sum = 0.0;
-          double epsilon = 1e-5;
-
-          for (u32 j = 0; j < num_cols; j++) {
-              semantic_probs_2d[ii][j] = (double)(afl->finds_per_semantic[ii][j]);
-              sum += semantic_probs_2d[ii][j];
-          }
-
-          if (sum < epsilon){
-            sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
-                semantic_probs_2d[ii][j] = (double)rand() / RAND_MAX;
-                sum += semantic_probs_2d[ii][j];
-            }
-          }
-
-          for (u32 j = 0; j < num_cols; j++) {
-              semantic_probs_2d[ii][j] /= (sum + epsilon);
-          }
-      }
-      update_distribution(semantic_probs_2d, afl->prob_table_semantic, afl->alias_table_semantic, num_semantic, num_cols);
-      for (u32 ii = 0; ii < num_semantic; ++ii) free(semantic_probs_2d[ii]);
-      free(semantic_probs_2d);
-
       // Compute semantic probabilities (3D)
-      num_semantic = afl->num_semantic;
+      u32 num_semantic = afl->num_semantic;
       double ***semantic_probs = (double ***)malloc(num_semantic * sizeof(double **));
       for (u32 ii = 0; ii < num_semantic; ++ii){
           semantic_probs[ii] = (double **)malloc(num_cols * sizeof(double *));
@@ -805,23 +776,11 @@ int main(int argc, char **argv_orig, char **envp) {
       FATAL("AFL_SEMANTIC_MAP environment variable is not set! This is required for this fuzzer.");
   }
 
-  afl->prob_table_semantic = (double **)malloc(afl->num_semantic * sizeof(double *));
-  afl->alias_table_semantic = (u32 **)malloc(afl->num_semantic * sizeof(u32 *));
-  afl->finds_per_semantic = (double **)malloc(afl->num_semantic * sizeof(double *));
-  
   afl->prob_table_semantic_mut = (double ***)malloc(afl->num_semantic * sizeof(double **));
   afl->alias_table_semantic_mut = (u32 ***)malloc(afl->num_semantic * sizeof(u32 **));
   afl->finds_per_semantic_mut = (double ***)malloc(afl->num_semantic * sizeof(double **));
   
   for (u32 i = 0; i < afl->num_semantic; ++i) {
-      afl->prob_table_semantic[i] = (double *)malloc(mut_max_global * sizeof(double));
-      afl->alias_table_semantic[i] = NULL;
-      afl->finds_per_semantic[i] = (double *)malloc(mut_max_global * sizeof(double));
-      for (u32 j = 0; j < mut_max_global; ++j) {
-          afl->prob_table_semantic[i][j] = 1.0 / mut_max_global;
-          afl->finds_per_semantic[i][j] = 0;
-      }
-      
       afl->prob_table_semantic_mut[i] = (double **)malloc(mut_max_global * sizeof(double *));
       afl->alias_table_semantic_mut[i] = (u32 **)malloc(mut_max_global * sizeof(u32 *));
       afl->finds_per_semantic_mut[i] = (double **)malloc(mut_max_global * sizeof(double *));
