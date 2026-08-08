@@ -163,53 +163,6 @@ static void initClusterMap(char* cluster_file) {
   }
 }
 
-static int classifyInstruction(Instruction &I) {
-  if (CallInst *CI = dyn_cast<CallInst>(&I)) {
-    Function *Callee = CI->getCalledFunction();
-    if (Callee && Callee->hasName()) {
-      StringRef Name = Callee->getName();
-      if (Name.contains("strcmp") || Name.contains("strcpy") || Name.contains("strlen") || 
-          Name.contains("memcpy") || Name.contains("memset") || Name.contains("memcmp") ||
-          Name.contains("strncpy") || Name.contains("strncmp")) {
-        return 2; // String
-      }
-      if (Name.contains("malloc") || Name.contains("free") || Name.contains("calloc") || Name.contains("realloc")) {
-        return 1; // Memory
-      }
-    }
-  }
-  if (isa<LoadInst>(I) || isa<StoreInst>(I) || isa<GetElementPtrInst>(I)) {
-    return 1; // Memory
-  }
-  if (isa<CmpInst>(I) || isa<BranchInst>(I) || isa<SwitchInst>(I)) {
-    return 4; // Logical
-  }
-  if (BinaryOperator *BO = dyn_cast<BinaryOperator>(&I)) {
-    switch (BO->getOpcode()) {
-      case Instruction::And:
-      case Instruction::Or:
-      case Instruction::Xor:
-      case Instruction::Shl:
-      case Instruction::LShr:
-      case Instruction::AShr:
-        return 5; // Bitwise
-      case Instruction::Add:
-      case Instruction::FAdd:
-      case Instruction::Sub:
-      case Instruction::FSub:
-      case Instruction::Mul:
-      case Instruction::FMul:
-      case Instruction::UDiv:
-      case Instruction::SDiv:
-      case Instruction::FDiv:
-      case Instruction::URem:
-      case Instruction::SRem:
-      case Instruction::FRem:
-        return 3; // Math
-    }
-  }
-  return 0; // General
-}
 
 static void initCoverageTarget(char* select_file) {
   std::string line;
@@ -2786,40 +2739,32 @@ void ModuleSanitizerCoverageLTO::InjectCoverageAtBlock(Function   &F,
 
   if (dfg_scoring || cluster_scoring) {
     for (auto &inst : BB) {
-      DebugLoc dbg = inst.getDebugLoc();
-      DILocation* DILoc = dbg.get();
+      DILocation* DILoc = inst.getDebugLoc().get();
       if (DILoc && DILoc->getLine()) {
-        int line_no = DILoc->getLine();
         std::string inst_file = DILoc->getFilename().str();
         std::size_t tokloc = inst_file.find_last_of('/');
         if (tokloc != std::string::npos) {
-          inst_file = inst_file.substr(tokloc + 1, std::string::npos);
+          inst_file = inst_file.substr(tokloc + 1);
         }
-        std::ostringstream stream;
-        stream << inst_file << ":" << line_no;
-        std::string targ_str = stream.str();
+        std::string targ_str = inst_file + ":" + std::to_string(DILoc->getLine());
         
-        if (dfg_scoring && dfg_node_map.count(targ_str) > 0) {
+        auto dfg_it = dfg_scoring ? dfg_node_map.find(targ_str) : dfg_node_map.end();
+        if (dfg_it != dfg_node_map.end()) {
           is_dfg_node = true;
-          auto &node_info = dfg_node_map[targ_str];
-          node_idx = node_info.idx;
-          node_score = node_info.score;
-          node_info.mapped = true;
-          
-          int max_sem = 0;
-          for (auto &inst_inner : BB) {
-              int sem = classifyInstruction(inst_inner);
-              if (sem > max_sem) max_sem = sem;
-          }
-          node_info.semantic_type = max_sem;
+          node_idx = dfg_it->second.idx;
+          node_score = dfg_it->second.score;
+          dfg_it->second.mapped = true;
         }
 
-        if (cluster_scoring && ClusterMap.count(targ_str) > 0) {
-          is_clustered = true;
-          cluster_id = ClusterMap[targ_str] + 1; // Shift by 1: -1 -> 0 (default mutator), 0 -> 1, 1 -> 2
-          
-          if (dfg_scoring && dfg_node_map.count(targ_str) > 0) {
-              dfg_node_map[targ_str].semantic_type = cluster_id; // Override heuristic with python cluster
+        if (cluster_scoring) {
+          auto cluster_it = ClusterMap.find(targ_str);
+          if (cluster_it != ClusterMap.end()) {
+            is_clustered = true;
+            cluster_id = cluster_it->second + 1; // Shift by 1: -1 -> 0, 0 -> 1, 1 -> 2
+            
+            if (dfg_it != dfg_node_map.end()) {
+              dfg_it->second.semantic_type = cluster_id;
+            }
           }
         }
 
