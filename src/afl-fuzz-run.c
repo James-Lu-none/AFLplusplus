@@ -740,18 +740,41 @@ u8 calibrate_case(afl_state_t *afl, struct queue_entry *q, u8 *use_mem,
   q->prox_score = compute_proximity_score(afl);
 
   if (afl->semantic_map) {
-      u32 max_score_idx = 0;
-      u32 max_score = 0;
+      u32 valid_max_score = 0;
+
       for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
-          if (afl->shm.dfg_map[i] > max_score) {
-              max_score = afl->shm.dfg_map[i];
-              max_score_idx = i;
+          u8 type = afl->semantic_map[i];
+          u32 score = afl->shm.dfg_map[i];
+          if (type != 0 && score > valid_max_score) {
+              valid_max_score = score;
           }
       }
-      if (max_score > 0) {
-          q->semantic_type = afl->semantic_map[max_score_idx];
+
+      if (valid_max_score > 0) {
+          u32 type_weights[256] = {0}; 
+          u32 threshold = 0; 
+          u32 frontier_min_score = (valid_max_score > threshold) ? (valid_max_score - threshold) : 1;
+
+          for (u32 i = 0; i < DFG_MAP_SIZE; i++) {
+              u8 type = afl->semantic_map[i];
+              u32 score = afl->shm.dfg_map[i];
+              if (type != 0 && score >= frontier_min_score) {
+                  type_weights[type] += score;
+              }
+          }
+
+          u8 dominant_type = 0;
+          u32 max_weight = 0;
+          for (u32 t = 1; t < 256; t++) {
+              if (type_weights[t] > max_weight) {
+                  max_weight = type_weights[t];
+                  dominant_type = t;
+              }
+          }
+
+          q->semantic_type = dominant_type;
       } else {
-          q->semantic_type = 0;
+          q->semantic_type = 0; 
       }
   } else {
       q->semantic_type = 0;
