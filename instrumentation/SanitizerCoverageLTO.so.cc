@@ -17,6 +17,7 @@
 #include <iostream>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <sstream>
 
 #include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
