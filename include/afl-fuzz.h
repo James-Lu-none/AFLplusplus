@@ -1006,17 +1006,11 @@ typedef struct afl_state {
   u8 *semantic_map;
   u32 *semantic_original_ids;
   
-  double **finds_per_mutator;
-  double **mut_probabilities;
-
   double ***prob_table_semantic_mut;
   u32 ***alias_table_semantic_mut;
   double ***finds_per_semantic_mut;
 
   u8 in_training;
-
-  u32 **alias_table_mut;    // Alias table for each mutator
-  double **prob_table_mut;  // Probability of choosing original or alias for each mutator
 
   double *finds_per_stack;
   double *stack_probabilities;

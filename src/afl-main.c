@@ -607,48 +607,6 @@ void afl_spawn_ui(afl_state_t *afl) {
 static void save_matrices(afl_state_t *afl) {
       u32 num_rows = mut_max_global;
       u32 num_cols = mut_max_global;
-      for (u32 ii = 0; ii < num_rows; ++ii){
-          double sum = 0.0;
-          double epsilon = 1e-5;
-
-          for (u32 j = 0; j < num_cols; j++) {
-              afl->mut_probabilities[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
-              sum += afl->mut_probabilities[ii][j];
-          }
-
-          if (sum < epsilon){
-            sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
-                afl->mut_probabilities[ii][j] = (double)rand() / RAND_MAX;
-                sum += afl->mut_probabilities[ii][j];
-            }
-          }
-
-          for (u32 j = 0; j < num_cols; j++) {
-              afl->mut_probabilities[ii][j] /= (sum + epsilon);
-          }
-      }
-
-      // Dump mutator probability matrix to file
-      printf("Dumping mut_prob_matrix.txt...\n");
-      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix.txt", afl->out_dir);
-      FILE *mut_f = fopen(mut_mat_path, "w");
-      if (!mut_f) {
-          PFATAL("Unable to create '%s'", mut_mat_path);
-      }
-      fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_rows; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
-              fprintf(mut_f, "%.6f ", afl->mut_probabilities[ii][j]);
-          }
-          fprintf(mut_f, "\n");
-      }
-      fclose(mut_f);
-      printf("Successfully dumped mut_prob_matrix.txt.\n");
-      ck_free(mut_mat_path);
-
-      update_distribution(afl->mut_probabilities, afl->prob_table_mut, afl->alias_table_mut, num_rows, num_cols);
-
       // Compute semantic probabilities (3D)
       u32 num_semantic = afl->num_semantic;
       double ***semantic_probs = (double ***)malloc(num_semantic * sizeof(double **));
@@ -678,6 +636,26 @@ static void save_matrices(afl_state_t *afl) {
           }
       }
       
+      // Dump finds per semantic mutator matrix to file
+      printf("Dumping finds_per_semantic_mut_matrix.txt...\n");
+      u8 *finds_sem_path = alloc_printf("%s/finds_per_semantic_mut_matrix.txt", afl->out_dir);
+      FILE *finds_sem_f = fopen(finds_sem_path, "w");
+      if (finds_sem_f) {
+          fprintf(finds_sem_f, "Semantic Type x Prev Mutator x Next Mutator Finds Matrix:\n");
+          for (u32 ii = 0; ii < num_semantic; ++ii) {
+              for (u32 j = 0; j < num_cols; j++) {
+                  fprintf(finds_sem_f, "Cluster %u (Original %u), Mutator %u: ", ii, afl->semantic_original_ids[ii], j);
+                  for (u32 k = 0; k < num_cols; k++) {
+                      fprintf(finds_sem_f, "%.2f ", afl->finds_per_semantic_mut[ii][j][k]);
+                  }
+                  fprintf(finds_sem_f, "\n");
+              }
+          }
+          fclose(finds_sem_f);
+          printf("Successfully dumped finds_per_semantic_mut_matrix.txt.\n");
+      }
+      ck_free(finds_sem_path);
+
       // Dump semantic probability matrix to file
       printf("Dumping semantic_prob_matrix.txt...\n");
       u8 *sem_mat_path = alloc_printf("%s/semantic_prob_matrix.txt", afl->out_dir);
@@ -727,21 +705,6 @@ int main(int argc, char **argv_orig, char **envp) {
   afl_load_seeds(afl);               // dry-run seeds, calibrate, cull queue
 
   afl_import_first(afl);  // sync peers before first cycle if AFL_IMPORT_FIRST
-
-  afl->finds_per_mutator = (double **)malloc(mut_max_global * sizeof(double *));
-  afl->mut_probabilities = (double **)malloc(mut_max_global * sizeof(double *));
-  
-  afl->alias_table_mut       = (u32 **)malloc(mut_max_global * sizeof(u32 *));
-  afl->prob_table_mut        = (double **)malloc(mut_max_global * sizeof(double *));
-
-  for (u32 i = 0; i < mut_max_global; ++i) {
-      afl->finds_per_mutator[i] = (double *)malloc(mut_max_global * sizeof(double));
-      memset(afl->finds_per_mutator[i], 0, mut_max_global * sizeof(double));
-      afl->mut_probabilities[i] = (double *)malloc(mut_max_global * sizeof(double));
-      memset(afl->mut_probabilities[i], 0, mut_max_global * sizeof(double));
-      afl->alias_table_mut[i] = NULL;
-      afl->prob_table_mut[i] = NULL;
-  }
 
   afl->semantic_map = (u8 *)calloc(DFG_MAP_SIZE, sizeof(u8));
   afl->semantic_original_ids = (u32 *)calloc(256, sizeof(u32));
@@ -844,50 +807,7 @@ int main(int argc, char **argv_orig, char **envp) {
     static bool printed_600s = false;
     if (afl->in_training && !printed_600s && get_cur_time() - afl->start_time > 600 * 1000) {
       printf("600 seconds snapshot: computing temporary P matrices...\n");
-      u32 num_rows = mut_max_global;
       u32 num_cols = mut_max_global;
-      double **temp_p = (double **)malloc(num_rows * sizeof(double *));
-      for (u32 ii = 0; ii < num_rows; ++ii){
-          temp_p[ii] = (double *)malloc(num_cols * sizeof(double));
-          double sum = 0.0;
-          double epsilon = 1e-5;
-
-          for (u32 j = 0; j < num_cols; j++) {
-              temp_p[ii][j] = (double)(afl->finds_per_mutator[ii][j]);
-              sum += temp_p[ii][j];
-          }
-
-          if (sum < epsilon){
-            sum = 0.0;
-            for (u32 j = 0; j < num_cols; j++) {
-                temp_p[ii][j] = (double)rand() / RAND_MAX;
-                sum += temp_p[ii][j];
-            }
-          }
-
-          for (u32 j = 0; j < num_cols; j++) {
-              temp_p[ii][j] /= (sum + epsilon);
-          }
-      }
-      printf("Dumping mut_prob_matrix_600s.txt...\n");
-      u8 *mut_mat_path = alloc_printf("%s/mut_prob_matrix_600s.txt", afl->out_dir);
-      FILE *mut_f = fopen(mut_mat_path, "w");
-      if (!mut_f) {
-          PFATAL("Unable to create '%s'", mut_mat_path);
-      }
-      fprintf(mut_f, "Mutator x Mutator Probability Matrix:\n");
-      for (u32 ii = 0; ii < num_rows; ++ii) {
-          for (u32 j = 0; j < num_cols; j++) {
-              fprintf(mut_f, "%.6f ", temp_p[ii][j]);
-          }
-          fprintf(mut_f, "\n");
-      }
-      fclose(mut_f);
-      printf("Successfully dumped mut_prob_matrix_600s.txt.\n");
-      ck_free(mut_mat_path);
-
-      for (u32 ii = 0; ii < num_rows; ++ii) free(temp_p[ii]);
-      free(temp_p);
 
       u32 num_semantic = afl->num_semantic;
       double ***semantic_probs = (double ***)malloc(num_semantic * sizeof(double **));
@@ -926,7 +846,7 @@ int main(int argc, char **argv_orig, char **envp) {
       fprintf(sem_f, "Semantic Type x Prev Mutator x Next Mutator Probability Matrix:\n");
       for (u32 ii = 0; ii < num_semantic; ++ii) {
           for (u32 j = 0; j < num_cols; j++) {
-              fprintf(sem_f, "Cluster %u, Mutator %u: ", ii, j);
+              fprintf(sem_f, "Cluster %u (Original %u), Mutator %u: ", ii, afl->semantic_original_ids[ii], j);
               for (u32 k = 0; k < num_cols; k++) {
                   fprintf(sem_f, "%.6f ", semantic_probs[ii][j][k]);
               }

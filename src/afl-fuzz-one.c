@@ -35,13 +35,7 @@
 
 const u32 mut_max_global = MUT_MAX;
 
-int sample_from_distribution(afl_state_t *afl, int row) {
-    int i = rand() % mut_max_global;
-    if (rand() / (double) RAND_MAX < afl->prob_table_mut[row][i])
-        return i;
-    else
-        return afl->alias_table_mut[row][i];
-}
+
 
 
 
@@ -3716,11 +3710,7 @@ havoc_stage:
   }
 
   free(selected_mutators);
-  if (afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
-    printf("Finds per mutator:\n");
-    print_double_array(afl->finds_per_mutator, mut_max_global);
-    printf("\n");
-  }
+
   
   if (!afl->in_training && (double)rand() / RAND_MAX < 0.0001) { 
     printf("Finds per stack:\n");
