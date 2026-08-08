@@ -1608,11 +1608,13 @@ bool ModuleSanitizerCoverageLTO::instrumentModule(
   appendToCompilerUsed(M, GlobalsToAppendToCompilerUsed);
   
   if (const char *csv_out = getenv("MUOAFL_SEMANTIC_CSV_OUT")) {
+    static std::unordered_set<std::string> written_nodes;
     std::ofstream ofs(csv_out, std::ios_base::app);
     if (ofs.is_open()) {
       for (auto const& [targ_line, info] : dfg_node_map) {
-         if (info.semantic_type == 0) continue; // Skip default/noise blocks to save space
+         if (written_nodes.count(targ_line)) continue; // Prevent duplicates in LTO
          ofs << info.idx << "," << info.score << "," << targ_line << "," << (info.mapped ? "true" : "false") << "," << info.semantic_type << "\n";
+         written_nodes.insert(targ_line);
       }
     }
   }
