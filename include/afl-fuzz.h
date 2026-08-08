@@ -1004,6 +1004,7 @@ typedef struct afl_state {
 
   u32 num_semantic;
   u8 *semantic_map;
+  u32 *semantic_original_ids;
   
   double **finds_per_mutator;
   double **mut_probabilities;

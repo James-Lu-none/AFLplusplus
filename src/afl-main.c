@@ -688,7 +688,7 @@ static void save_matrices(afl_state_t *afl) {
       fprintf(sem_f, "Semantic Type x Prev Mutator x Next Mutator Probability Matrix:\n");
       for (u32 ii = 0; ii < num_semantic; ++ii) {
           for (u32 j = 0; j < num_cols; j++) {
-              fprintf(sem_f, "Cluster %u, Mutator %u: ", ii, j);
+              fprintf(sem_f, "Cluster %u (Original %u), Mutator %u: ", ii, afl->semantic_original_ids[ii], j);
               for (u32 k = 0; k < num_cols; k++) {
                   fprintf(sem_f, "%.6f ", semantic_probs[ii][j][k]);
               }
@@ -744,7 +744,9 @@ int main(int argc, char **argv_orig, char **envp) {
   }
 
   afl->semantic_map = (u8 *)calloc(DFG_MAP_SIZE, sizeof(u8));
+  afl->semantic_original_ids = (u32 *)calloc(256, sizeof(u32));
   afl->num_semantic = 1; // At least 1 for the default cluster (0)
+  afl->semantic_original_ids[0] = 0;
 
   char *sem_file = getenv("AFL_SEMANTIC_MAP");
   if (sem_file) {
@@ -753,22 +755,35 @@ int main(int argc, char **argv_orig, char **envp) {
           char line[512];
           while (fgets(line, sizeof(line), sf)) {
               // CSV Format: idx,score,targ_line,mapped,semantic_type
-              u32 s_idx = 0;
-              u32 s_score = 0;
-              char targ_line[256] = {0};
-              char mapped[32] = {0};
-              u32 s_type = 0;
+              u32 s_idx = 0, s_score = 0, s_type = 0;
+              char targ_line[256] = {0}, mapped[32] = {0};
               if (sscanf(line, "%u,%u,%255[^,],%31[^,],%u", &s_idx, &s_score, targ_line, mapped, &s_type) == 5) {
                   if (s_idx < DFG_MAP_SIZE) {
-                      afl->semantic_map[s_idx] = (u8)s_type;
-                      if (s_type >= afl->num_semantic) {
-                          afl->num_semantic = s_type + 1;
+                      u8 internal_id = 0;
+                      if (s_type != 0) {
+                          // Search for existing mapping
+                          for (u32 k = 1; k < afl->num_semantic; k++) {
+                              if (afl->semantic_original_ids[k] == s_type) {
+                                  internal_id = k;
+                                  break;
+                              }
+                          }
+                          // If not found, create new mapping
+                          if (internal_id == 0) {
+                              if (afl->num_semantic < 256) {
+                                  internal_id = afl->num_semantic;
+                                  afl->semantic_original_ids[afl->num_semantic++] = s_type;
+                              } else {
+                                  FATAL("Too many unique semantic clusters (max 255)");
+                              }
+                          }
                       }
+                      afl->semantic_map[s_idx] = internal_id;
                   }
               }
           }
           fclose(sf);
-          OKF("Loaded semantic map from %s. Max semantic cluster: %u (num_semantic=%u)", sem_file, afl->num_semantic - 1, afl->num_semantic);
+          OKF("Loaded semantic map from %s. Total unique clusters mapped: %u", sem_file, afl->num_semantic);
       } else {
           FATAL("AFL_SEMANTIC_MAP is set to '%s' but the file could not be opened!", sem_file);
       }
